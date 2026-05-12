@@ -30,6 +30,7 @@ type OpenRouterModelDef = {
 type OpenRouterRouting = {
   only?: string[];
   order?: string[];
+  default?: string[];
 };
 
 type OpenRouterConfig = {
@@ -45,6 +46,15 @@ const MODEL_DEFS: OpenRouterModelDef[] = [
     cost: { input: 0.42, output: 2.20, cacheRead: 0.21, cacheWrite: 0 },
     contextWindow: 262144,
     maxTokens: 65535,
+  },
+  {
+    id: "moonshotai/kimi-k2.6",
+    name: "Kimi K2.6",
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 0.30, output: 1.20, cacheRead: 0.15, cacheWrite: 0.30 },
+    contextWindow: 262144,
+    maxTokens: 65536,
   },
   {
     id: "minimax/minimax-m2.7",
@@ -189,8 +199,10 @@ function normalizeRoutingEntry(entry: OpenRouterRouting | undefined): OpenRouter
   if (!entry) return undefined;
   const only = entry.only?.map((value) => value.trim()).filter(Boolean);
   const order = entry.order?.map((value) => value.trim()).filter(Boolean);
+  const def = entry.default?.map((value) => value.trim()).filter(Boolean);
   if (only && only.length > 0) return { only };
   if (order && order.length > 0) return { order };
+  if (def && def.length > 0) return { default: def };
   return undefined;
 }
 
@@ -243,6 +255,7 @@ function formatRouting(entry: OpenRouterRouting | undefined): string {
   if (!entry) return "default";
   if (entry.only?.length) return `only=${entry.only.join(",")}`;
   if (entry.order?.length) return `order=${entry.order.join(",")}`;
+  if (entry.default?.length) return `default=${entry.default.join(",")}`;
   return "default";
 }
 
@@ -256,7 +269,7 @@ function commandCompletions(prefix: string) {
   const trimmed = prefix.trimStart();
   const parts = trimmed.split(/\s+/).filter(Boolean);
   const endsWithSpace = /\s$/.test(trimmed);
-  const root = ["status", "only", "order", "clear"];
+  const root = ["status", "only", "order", "default", "clear"];
 
   if (!trimmed) return root.map((value) => ({ value, label: value }));
 
@@ -267,7 +280,7 @@ function commandCompletions(prefix: string) {
   }
 
   const first = (parts[0] ?? "").toLowerCase();
-  if (first === "only" || first === "order" || first === "clear") {
+  if (first === "only" || first === "order" || first === "default" || first === "clear") {
     const wantsModel = parts.length === 1 || (parts.length === 2 && !endsWithSpace);
     if (wantsModel) {
       const modelPrefix = parts.length <= 1 || endsWithSpace ? "" : (parts[1] ?? "").toLowerCase();
@@ -334,16 +347,18 @@ export default function (pi: ExtensionAPI) {
       const value = rest.join(" ").trim();
       const knownModel = MODEL_DEFS.some((model) => model.id === modelId);
 
-      if (subcommand === "only" || subcommand === "order") {
+      if (subcommand === "only" || subcommand === "order" || subcommand === "default") {
         if (!knownModel || !value) {
-          throw new Error("Usage: /openrouter <only|order> <model-id> <provider-slug[,provider-slug,...]>");
+          throw new Error("Usage: /openrouter <only|order|default> <model-id> <provider-slug[,provider-slug,...]>");
         }
         const providers = normalizeProviderList(value);
         if (providers.length === 0) {
           throw new Error("Provider list cannot be empty");
         }
         const next: OpenRouterConfig = { routing: { ...(config.routing ?? {}) } };
-        next.routing![modelId] = subcommand === "only" ? { only: providers } : { order: providers };
+        if (subcommand === "only") next.routing![modelId] = { only: providers };
+        else if (subcommand === "order") next.routing![modelId] = { order: providers };
+        else next.routing![modelId] = { default: providers };
         await saveConfig(ctx.cwd, next);
         registerOpenRouterProvider(pi, next);
         ctx.ui.notify(
@@ -378,7 +393,7 @@ export default function (pi: ExtensionAPI) {
       }
 
       throw new Error(
-        "Usage: /openrouter [status|only <model-id> <providers>|order <model-id> <providers>|clear [model-id]]",
+        "Usage: /openrouter [status|only <model-id> <providers>|order <model-id> <providers>|default <model-id> <providers>|clear [model-id]]",
       );
     },
   });
