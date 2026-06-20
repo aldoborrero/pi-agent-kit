@@ -73,101 +73,6 @@ interface SuggestState {
   lastAssistantContentKind: string | null;
   lastAssistantContentPreview: string | null;
   generationId: number;
-  suggestionHistory: Array<{
-    suggestions: string[];
-    selectedSuggestionIndex: number;
-    sourceTurnKey: string | null;
-  }>;
-  miniMode: boolean;
-}
-
-function truncate(text: string, maxChars: number): string {
-  return text.length > maxChars ? `${text.slice(0, maxChars - 1)}…` : text;
-}
-
-function isAssistantMessage(message: AgentMessage): boolean {
-  return message.role === "assistant";
-}
-
-function isUserMessage(message: AgentMessage): boolean {
-  return message.role === "user";
-}
-
-function getMessageContent(message: AgentMessage): unknown {
-  return (message as AgentMessage & { content?: unknown }).content;
-}
-
-function extractText(message: AgentMessage): string {
-  const content = getMessageContent(message);
-  if (typeof content === "string") return content.trim();
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((block): block is TextContent => typeof block === "object" && block !== null && "type" in block && block.type === "text")
-    .map((block) => block.text)
-    .join("\n\n")
-    .trim();
-}
-
-/** Work around older pi-coding-agent versions where hasConfiguredAuth() crashes on
- *  providers registered with headers but no apiKey. */
-function safeGetAvailableModels(modelRegistry: ExtensionContext["modelRegistry"]): Model<any>[] {
-  try {
-    return modelRegistry.getAvailable();
-  } catch {
-    try {
-      return modelRegistry
-        .getAll()
-        .filter((m) => m && m.provider && m.id)
-        .filter((m) => {
-          try {
-            return modelRegistry.hasConfiguredAuth(m);
-          } catch {
-            return false;
-          }
-        });
-    } catch {
-      return [];
-    }
-  }
-}
-
-function buildTurnKey(messages: AgentMessage[]): string {
-  const lastAssistantIndex = [...messages].reverse().findIndex(isAssistantMessage);
-  const lastUserIndex = [...messages].reverse().findIndex(isUserMessage);
-  return `${messages.length}:${lastAssistantIndex}:${lastUserIndex}`;
-}
-
-function buildSuggestionInput(messages: AgentMessage[], cwd: string): string | null {
-  const recent = messages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .slice(-MAX_CONTEXT_MESSAGES);
-
-  const rendered = recent
-    .map((message) => {
-      const text = extractText(message);
-      if (!text) return null;
-      const role = message.role ?? "unknown";
-      const capped = role === "assistant"
-        ? truncate(text, MAX_ASSISTANT_CHARS)
-        : truncate(text, MAX_USER_CHARS);
-      return `${role.toUpperCase()}:\n${capped}`;
-    })
-    .filter(Boolean)
-    .join("\n\n");
-
-  if (!rendered.trim()) return null;
-
-  return [
-    `Project directory: ${cwd}`,
-    "Recent conversation:",
-    rendered,
-    "",
-    "Reply with ONLY a JSON array of up to 3 likely next user messages. Use fewer when the options are too similar.",
-  ].join("\n");
-}
-
-function filterSuggestion(raw: string | null): { suggestion: string | null; reason: string | null } {
-  if (typeof raw !== "string" || !raw) return { suggestion: null, reason: "model returned empty output" };
   const suggestion = raw.trim();
   if (!suggestion) return { suggestion: null, reason: "model returned blank output" };
 
@@ -619,7 +524,7 @@ async function generateSuggestion(
     thinkingLevel: "off",
     tools: [],
     resourceLoader,
-    sessionManager: SessionManager.inMemory(),
+    sessionManager: SessionManager.inMemory(suggestCwd),
     settingsManager,
   });
 
@@ -683,7 +588,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     lastAssistantContentKind: null,
     lastAssistantContentPreview: null,
     generationId: 0,
-    suggestionHistory: [],
     miniMode: false,
   };
   let fancyFooterActive = false;
@@ -736,7 +640,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   function syncEditor(): void {
     editorRef?.setEnabled(state.enabled);
     editorRef?.setSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
-    editorRef?.setHistoryAvailable(state.suggestionHistory.length > 0);
   }
 
   function installEditor(ctx: ExtensionContext): void {
@@ -758,10 +661,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       editor.setOnDismissSuggestion(() => {
         clearSuggestion(lastUIContext);
       });
-      editor.setOnUndoSuggestion(() => {
-        undoSuggestionDismissal(lastUIContext);
-      });
-      editor.setHistoryAvailable(state.suggestionHistory.length > 0);
       editorRef = editor;
       return editor;
     });
@@ -770,17 +669,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   function clearSuggestion(ctx?: ExtensionContext, options?: { preserveDiagnostics?: boolean }): void {
     void abortActiveSession();
     if (ctx?.hasUI) lastUIContext = ctx;
-    // Save to history before clearing
-    if (state.suggestions.length > 0) {
-      state.suggestionHistory.push({
-        suggestions: [...state.suggestions],
-        selectedSuggestionIndex: state.selectedSuggestionIndex,
-        sourceTurnKey: state.sourceTurnKey,
-      });
-      if (state.suggestionHistory.length > 10) {
-        state.suggestionHistory.shift();
-      }
-    }
     state.suggestions = [];
     state.selectedSuggestionIndex = 0;
     state.sourceTurnKey = null;
@@ -810,17 +698,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     }
   }
 
-  function undoSuggestionDismissal(ctx?: ExtensionContext): void {
-    if (state.suggestionHistory.length === 0) return;
-    if (ctx?.hasUI) lastUIContext = ctx;
-    const entry = state.suggestionHistory.pop()!;
-    state.suggestions = entry.suggestions;
-    state.selectedSuggestionIndex = entry.selectedSuggestionIndex;
-    state.sourceTurnKey = entry.sourceTurnKey;
-    state.generating = false;
-    syncEditor();
-    renderSuggestion(ctx);
-  }
 
   function renderSuggestion(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
@@ -844,9 +721,8 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       const index = state.selectedSuggestionIndex + 1;
       const help = count > 1 ? "Alt+↑↓: Cycle" : "";
       const insert = "Tab/→: Insert";
-      const undo = state.suggestionHistory.length > 0 ? "Alt+O: Undo" : "";
       const prefix = count > 1 ? `[${index}/${count}]` : "";
-      const parts = [prefix, help, insert, undo].filter(Boolean);
+      const parts = [prefix, help, insert].filter(Boolean);
       const widgetLines = [
         `${colors.primary(`Suggest ${parts.join(" · ")}`)}`,
       ];
@@ -867,14 +743,10 @@ export default function suggestExtension(pi: ExtensionAPI): void {
         ? "Alt+↑↓ cycle · Tab/→ insert"
         : "Tab/→ insert";
 
-      const historyText = state.suggestionHistory.length > 0
-        ? ` · Alt+O undo (${state.suggestionHistory.length})`
-        : "";
-
       const widgetLines = [
         colors.primary("Suggest:"),
         ...suggestionLines,
-        colors.meta(helpText + historyText),
+        colors.meta(helpText),
       ];
       ctx.ui.setWidget(WIDGET_ID, widgetLines);
     }
@@ -994,17 +866,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
         }
         clearSuggestion(ctx, { preserveDiagnostics: true });
         return;
-      }
-      // Save previous suggestions to history before overwriting
-      if (state.suggestions.length > 0) {
-        state.suggestionHistory.push({
-          suggestions: [...state.suggestions],
-          selectedSuggestionIndex: state.selectedSuggestionIndex,
-          sourceTurnKey: state.sourceTurnKey,
-        });
-        if (state.suggestionHistory.length > 10) {
-          state.suggestionHistory.shift();
-        }
       }
       state.suggestions = result.suggestions;
       state.selectedSuggestionIndex = 0;
@@ -1186,16 +1047,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
         }
         await writeProjectSuggestModelConfig(ctx.cwd, `${model.provider}/${model.id}`);
         ctx.ui.notify(`Suggest model set to ${model.provider}/${model.id} (${getProjectSuggestConfigPath(ctx.cwd)}#${SUGGEST_SETTINGS_KEY})`, "info");
-        return;
-      }
-
-      if (sub === "undo") {
-        undoSuggestionDismissal(ctx);
-        if (state.suggestions.length > 0) {
-          ctx.ui.notify(`Suggest: restored suggestion "${getSelectedSuggestion()}" from history`, "info");
-        } else {
-          ctx.ui.notify("Suggest: no dismissed suggestions to restore", "info");
-        }
         return;
       }
 
