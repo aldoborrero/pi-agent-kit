@@ -21,7 +21,6 @@ import { SuggestEditor } from "./editor";
 
 const DEFAULT_SUGGESTION_MODEL = "current";
 const MODEL_ENV = "PI_SUGGEST_MODEL";
-const LEGACY_MODEL_ENV = "PI_PROMPT_SUGGESTION_MODEL";
 const WIDGET_ID = "suggest";
 const STATUS_ID = "suggest";
 const MAX_CONTEXT_MESSAGES = 6;
@@ -264,7 +263,7 @@ type SuggestJsonConfig = {
 
 type SuggestModelConfigInfo = {
   value: string;
-  source: "env" | "legacy-env" | "project-settings" | "global-settings" | "project-json" | "global-json" | "default";
+  source: "env" | "project-settings" | "global-settings" | "default";
   path?: string;
   field?: "model" | "defaultModel";
 };
@@ -275,25 +274,12 @@ function getGlobalSuggestConfigPath(): string {
   return join(getAgentDir(), "settings.json");
 }
 
-function getLegacyGlobalSuggestConfigPath(): string {
-  return join(dirname(getAgentDir()), "suggest.json");
-}
 
 function getProjectSuggestConfigPath(cwd: string): string {
   return cwd ? join(cwd, ".pi", "settings.json") : ".pi/settings.json";
 }
 
-function getLegacyProjectSuggestConfigPath(cwd: string): string {
-  return cwd ? join(cwd, ".pi", "suggest.json") : ".pi/suggest.json";
-}
 
-function readSuggestConfigFile(path: string): SuggestJsonConfig {
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as SuggestJsonConfig;
-  } catch {
-    return {};
-  }
-}
 
 function normalizeSuggestConfig(raw: unknown): SuggestJsonConfig {
   if (!raw || typeof raw !== "object") return {};
@@ -319,8 +305,6 @@ function getConfiguredModelInfo(cwd: string): SuggestModelConfigInfo {
   const envModel = process.env[MODEL_ENV]?.trim();
   if (envModel) return { value: envModel, source: "env" };
 
-  const legacyEnvModel = process.env[LEGACY_MODEL_ENV]?.trim();
-  if (legacyEnvModel) return { value: legacyEnvModel, source: "legacy-env" };
 
   const settingsConfig = readSuggestSettings(cwd);
   if (settingsConfig.project.model?.trim()) {
@@ -334,24 +318,6 @@ function getConfiguredModelInfo(cwd: string): SuggestModelConfigInfo {
   }
   if (settingsConfig.global.defaultModel?.trim()) {
     return { value: settingsConfig.global.defaultModel.trim(), source: "global-settings", path: getGlobalSuggestConfigPath(), field: "defaultModel" };
-  }
-
-  const projectPath = getLegacyProjectSuggestConfigPath(cwd);
-  const projectConfig = readSuggestConfigFile(projectPath);
-  if (projectConfig.model?.trim()) {
-    return { value: projectConfig.model.trim(), source: "project-json", path: projectPath, field: "model" };
-  }
-  if (projectConfig.defaultModel?.trim()) {
-    return { value: projectConfig.defaultModel.trim(), source: "project-json", path: projectPath, field: "defaultModel" };
-  }
-
-  const globalPath = getLegacyGlobalSuggestConfigPath();
-  const globalConfig = readSuggestConfigFile(globalPath);
-  if (globalConfig.model?.trim()) {
-    return { value: globalConfig.model.trim(), source: "global-json", path: globalPath, field: "model" };
-  }
-  if (globalConfig.defaultModel?.trim()) {
-    return { value: globalConfig.defaultModel.trim(), source: "global-json", path: globalPath, field: "defaultModel" };
   }
 
   return { value: DEFAULT_SUGGESTION_MODEL, source: "default" };
@@ -1176,8 +1142,8 @@ export default function suggestExtension(pi: ExtensionAPI): void {
             `Source: ${configured.source}`,
             `Path: ${configured.path ?? "none"}`,
             `Field: ${configured.field ?? "none"}`,
-            configured.source === "env" || configured.source === "legacy-env"
-              ? `Note: environment variables override settings and legacy JSON config`
+            configured.source === "env"
+              ? `Note: environment variables override settings`
               : `Use /suggest model, /suggest model <provider/model-id>, /suggest model current, or /suggest model clear`,
           ].join("\n"),
           "info",
