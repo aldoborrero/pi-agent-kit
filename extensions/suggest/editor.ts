@@ -5,92 +5,86 @@ const CURSOR_AT_END = "\x1b[7m \x1b[0m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-const ORACLE_UNDO_KEY = "alt+o";
+const SUGGEST_UNDO_KEY = "alt+o";
 
-export class OracleEditor extends CustomEditor {
-  private oracleSuggestions: string[] = [];
+export class SuggestEditor extends CustomEditor {
+  private suggestions: string[] = [];
   private selectedSuggestionIndex = 0;
-  private oracleEnabled = true;
-  private oracleHistoryAvailable = false;
-  private onAcceptOracleSuggestion?: () => void;
-  private onSelectOracleSuggestion?: ((index: number) => void) | undefined;
-  private onDismissOracleSuggestion?: () => void;
-  private onUndoOracleSuggestion?: () => void;
+  private enabled = true;
+  private historyAvailable = false;
+  private onAcceptSuggestion?: () => void;
+  private onSelectSuggestion?: ((index: number) => void) | undefined;
+  private onUndoSuggestion?: () => void;
 
-  setOracleSuggestions(suggestions: string[], selectedIndex = 0): void {
-    this.oracleSuggestions = suggestions.map((text) => text.trim()).filter(Boolean);
-    this.selectedSuggestionIndex = Math.max(0, Math.min(selectedIndex, Math.max(0, this.oracleSuggestions.length - 1)));
+  setSuggestions(suggestions: string[], selectedIndex = 0): void {
+    this.suggestions = suggestions.map((text) => text.trim()).filter(Boolean);
+    this.selectedSuggestionIndex = Math.max(0, Math.min(selectedIndex, Math.max(0, this.suggestions.length - 1)));
     this.tui.requestRender();
   }
 
-  setOracleEnabled(enabled: boolean): void {
-    this.oracleEnabled = enabled;
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
     this.tui.requestRender();
   }
 
-  setOracleHistoryAvailable(available: boolean): void {
-    this.oracleHistoryAvailable = available;
+  setHistoryAvailable(available: boolean): void {
+    this.historyAvailable = available;
     this.tui.requestRender();
   }
 
-  clearOracleSuggestion(): void {
-    this.oracleSuggestions = [];
+  clear(): void {
+    this.suggestions = [];
     this.selectedSuggestionIndex = 0;
     this.tui.requestRender();
   }
 
-  setOnAcceptOracleSuggestion(handler: (() => void) | undefined): void {
-    this.onAcceptOracleSuggestion = handler;
+  setOnAcceptSuggestion(handler: (() => void) | undefined): void {
+    this.onAcceptSuggestion = handler;
   }
 
-  setOnSelectOracleSuggestion(handler: ((index: number) => void) | undefined): void {
-    this.onSelectOracleSuggestion = handler;
+  setOnSelectSuggestion(handler: ((index: number) => void) | undefined): void {
+    this.onSelectSuggestion = handler;
   }
 
-  setOnDismissOracleSuggestion(handler: (() => void) | undefined): void {
-    this.onDismissOracleSuggestion = handler;
-  }
-
-  setOnUndoOracleSuggestion(handler: (() => void) | undefined): void {
-    this.onUndoOracleSuggestion = handler;
+  setOnUndoSuggestion(handler: (() => void) | undefined): void {
+    this.onUndoSuggestion = handler;
   }
 
   private getSelectedSuggestion(): string | null {
-    if (this.oracleSuggestions.length === 0) return null;
-    return this.oracleSuggestions[this.selectedSuggestionIndex] ?? null;
+    if (this.suggestions.length === 0) return null;
+    return this.suggestions[this.selectedSuggestionIndex] ?? null;
   }
 
-  private shouldShowOracleGhost(): boolean {
-    return this.oracleEnabled && !!this.getSelectedSuggestion() && !this.isShowingAutocomplete() && this.getText().length === 0;
+  private shouldShowGhost(): boolean {
+    return this.enabled && !!this.getSelectedSuggestion() && !this.isShowingAutocomplete() && this.getText().length === 0;
   }
 
   private cycleSelection(direction: -1 | 1): void {
-    if (this.oracleSuggestions.length <= 1) return;
-    const count = this.oracleSuggestions.length;
+    if (this.suggestions.length <= 1) return;
+    const count = this.suggestions.length;
     this.selectedSuggestionIndex = (this.selectedSuggestionIndex + direction + count) % count;
-    this.onSelectOracleSuggestion?.(this.selectedSuggestionIndex);
+    this.onSelectSuggestion?.(this.selectedSuggestionIndex);
     this.tui.requestRender();
   }
 
   override handleInput(data: string): void {
     // Undo dismissal: Alt+O (works regardless of ghost state)
-    if (matchesKey(data, ORACLE_UNDO_KEY)) {
-      if (this.oracleHistoryAvailable) {
-        this.onUndoOracleSuggestion?.();
+    if (matchesKey(data, SUGGEST_UNDO_KEY)) {
+      if (this.historyAvailable) {
+        this.onUndoSuggestion?.();
         return;
       }
     }
 
-    if (this.shouldShowOracleGhost()) {
+    if (this.shouldShowGhost()) {
       // Accept suggestion — keep suggestions so ghost reappears if the user deletes the text
       if (matchesKey(data, "tab") || matchesKey(data, "right")) {
         this.insertTextAtCursor(this.getSelectedSuggestion()!);
-        this.onAcceptOracleSuggestion?.();
+        this.onAcceptSuggestion?.();
         return;
       }
-      // Escape does not dismiss anymore — suggestions persist until overwritten
       // Cycle through multiple suggestions with Alt+Up / Alt+Down
-      if (this.oracleSuggestions.length > 1) {
+      if (this.suggestions.length > 1) {
         if (matchesKey(data, "alt+up")) {
           this.cycleSelection(-1);
           return;
@@ -107,9 +101,7 @@ export class OracleEditor extends CustomEditor {
 
   override render(width: number): string[] {
     const lines = super.render(width);
-    const ghostVisible = this.shouldShowOracleGhost();
-
-    if (!ghostVisible) return lines;
+    if (!this.shouldShowGhost()) return lines;
 
     const editableLineIndex = lines.findIndex((line, index) => {
       if (index === 0 || index === lines.length - 1) return false;

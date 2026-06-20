@@ -17,18 +17,18 @@ import {
 import { Container, fuzzyFilter, Input, Spacer, Text } from "@earendil-works/pi-tui";
 import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
 import { createUiColors } from "../_shared/ui-colors.js";
-import { OracleEditor } from "./editor";
+import { SuggestEditor } from "./editor";
 
 const DEFAULT_SUGGESTION_MODEL = "current";
-const MODEL_ENV = "PI_ORACLE_MODEL";
+const MODEL_ENV = "PI_SUGGEST_MODEL";
 const LEGACY_MODEL_ENV = "PI_PROMPT_SUGGESTION_MODEL";
-const WIDGET_ID = "oracle";
-const STATUS_ID = "oracle";
+const WIDGET_ID = "suggest";
+const STATUS_ID = "suggest";
 const MAX_CONTEXT_MESSAGES = 6;
 const MAX_ASSISTANT_CHARS = 3000;
 const MAX_USER_CHARS = 1200;
 
-const ORACLE_SYSTEM_PROMPT = `You predict what the user will most likely type next in a coding assistant.
+const SUGGEST_SYSTEM_PROMPT = `You predict what the user will most likely type next in a coding assistant.
 
 Rules:
 - Output only valid JSON.
@@ -47,14 +47,14 @@ Rules:
 - No evaluative filler (avoid: thanks, looks good, perfect).
 - If no obvious next step exists, return an empty JSON array [].`;
 
-interface OracleModelItem {
+interface SuggestModelItem {
   provider: string;
   id: string;
   fullId: string;
   model: Model<any>;
 }
 
-interface OracleState {
+interface SuggestState {
   enabled: boolean;
   debug: boolean;
   suggestions: string[];
@@ -67,10 +67,10 @@ interface OracleState {
   lastResolvedModel: string | null;
   lastGenerationStatus: string | null;
   lastModelResolutionReason: string | null;
-  lastOracleInputPreview: string | null;
-  lastOraclePayloadPreview: string | null;
-  lastOracleMessageCount: number | null;
-  lastOracleMessageRoles: string | null;
+  lastSuggestInputPreview: string | null;
+  lastSuggestPayloadPreview: string | null;
+  lastSuggestMessageCount: number | null;
+  lastSuggestMessageRoles: string | null;
   lastAssistantContentKind: string | null;
   lastAssistantContentPreview: string | null;
   generationId: number;
@@ -257,87 +257,87 @@ function extractJsonArrayText(raw: string): string | null {
   return text.slice(start, end + 1);
 }
 
-type OracleJsonConfig = {
+type SuggestJsonConfig = {
   model?: string;
   defaultModel?: string;
 };
 
-type OracleModelConfigInfo = {
+type SuggestModelConfigInfo = {
   value: string;
   source: "env" | "legacy-env" | "project-settings" | "global-settings" | "project-json" | "global-json" | "default";
   path?: string;
   field?: "model" | "defaultModel";
 };
 
-const ORACLE_SETTINGS_KEY = "oracle";
+const SUGGEST_SETTINGS_KEY = "suggest";
 
-function getGlobalOracleConfigPath(): string {
+function getGlobalSuggestConfigPath(): string {
   return join(getAgentDir(), "settings.json");
 }
 
-function getLegacyGlobalOracleConfigPath(): string {
-  return join(dirname(getAgentDir()), "oracle.json");
+function getLegacyGlobalSuggestConfigPath(): string {
+  return join(dirname(getAgentDir()), "suggest.json");
 }
 
-function getProjectOracleConfigPath(cwd: string): string {
+function getProjectSuggestConfigPath(cwd: string): string {
   return cwd ? join(cwd, ".pi", "settings.json") : ".pi/settings.json";
 }
 
-function getLegacyProjectOracleConfigPath(cwd: string): string {
-  return cwd ? join(cwd, ".pi", "oracle.json") : ".pi/oracle.json";
+function getLegacyProjectSuggestConfigPath(cwd: string): string {
+  return cwd ? join(cwd, ".pi", "suggest.json") : ".pi/suggest.json";
 }
 
-function readOracleConfigFile(path: string): OracleJsonConfig {
+function readSuggestConfigFile(path: string): SuggestJsonConfig {
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as OracleJsonConfig;
+    return JSON.parse(readFileSync(path, "utf8")) as SuggestJsonConfig;
   } catch {
     return {};
   }
 }
 
-function normalizeOracleConfig(raw: unknown): OracleJsonConfig {
+function normalizeSuggestConfig(raw: unknown): SuggestJsonConfig {
   if (!raw || typeof raw !== "object") return {};
-  const config = raw as OracleJsonConfig;
+  const config = raw as SuggestJsonConfig;
   return {
     model: typeof config.model === "string" ? config.model : undefined,
     defaultModel: typeof config.defaultModel === "string" ? config.defaultModel : undefined,
   };
 }
 
-function readOracleSettings(cwd: string): { project: OracleJsonConfig; global: OracleJsonConfig } {
+function readSuggestSettings(cwd: string): { project: SuggestJsonConfig; global: SuggestJsonConfig } {
   if (!cwd) return { project: {}, global: {} };
   const manager = SettingsManager.create(cwd);
   const projectSettings = manager.getProjectSettings() as Record<string, unknown>;
   const globalSettings = manager.getGlobalSettings() as Record<string, unknown>;
   return {
-    project: normalizeOracleConfig(projectSettings[ORACLE_SETTINGS_KEY]),
-    global: normalizeOracleConfig(globalSettings[ORACLE_SETTINGS_KEY]),
+    project: normalizeSuggestConfig(projectSettings[SUGGEST_SETTINGS_KEY]),
+    global: normalizeSuggestConfig(globalSettings[SUGGEST_SETTINGS_KEY]),
   };
 }
 
-function getConfiguredModelInfo(cwd: string): OracleModelConfigInfo {
+function getConfiguredModelInfo(cwd: string): SuggestModelConfigInfo {
   const envModel = process.env[MODEL_ENV]?.trim();
   if (envModel) return { value: envModel, source: "env" };
 
   const legacyEnvModel = process.env[LEGACY_MODEL_ENV]?.trim();
   if (legacyEnvModel) return { value: legacyEnvModel, source: "legacy-env" };
 
-  const settingsConfig = readOracleSettings(cwd);
+  const settingsConfig = readSuggestSettings(cwd);
   if (settingsConfig.project.model?.trim()) {
-    return { value: settingsConfig.project.model.trim(), source: "project-settings", path: getProjectOracleConfigPath(cwd), field: "model" };
+    return { value: settingsConfig.project.model.trim(), source: "project-settings", path: getProjectSuggestConfigPath(cwd), field: "model" };
   }
   if (settingsConfig.project.defaultModel?.trim()) {
-    return { value: settingsConfig.project.defaultModel.trim(), source: "project-settings", path: getProjectOracleConfigPath(cwd), field: "defaultModel" };
+    return { value: settingsConfig.project.defaultModel.trim(), source: "project-settings", path: getProjectSuggestConfigPath(cwd), field: "defaultModel" };
   }
   if (settingsConfig.global.model?.trim()) {
-    return { value: settingsConfig.global.model.trim(), source: "global-settings", path: getGlobalOracleConfigPath(), field: "model" };
+    return { value: settingsConfig.global.model.trim(), source: "global-settings", path: getGlobalSuggestConfigPath(), field: "model" };
   }
   if (settingsConfig.global.defaultModel?.trim()) {
-    return { value: settingsConfig.global.defaultModel.trim(), source: "global-settings", path: getGlobalOracleConfigPath(), field: "defaultModel" };
+    return { value: settingsConfig.global.defaultModel.trim(), source: "global-settings", path: getGlobalSuggestConfigPath(), field: "defaultModel" };
   }
 
-  const projectPath = getLegacyProjectOracleConfigPath(cwd);
-  const projectConfig = readOracleConfigFile(projectPath);
+  const projectPath = getLegacyProjectSuggestConfigPath(cwd);
+  const projectConfig = readSuggestConfigFile(projectPath);
   if (projectConfig.model?.trim()) {
     return { value: projectConfig.model.trim(), source: "project-json", path: projectPath, field: "model" };
   }
@@ -345,8 +345,8 @@ function getConfiguredModelInfo(cwd: string): OracleModelConfigInfo {
     return { value: projectConfig.defaultModel.trim(), source: "project-json", path: projectPath, field: "defaultModel" };
   }
 
-  const globalPath = getLegacyGlobalOracleConfigPath();
-  const globalConfig = readOracleConfigFile(globalPath);
+  const globalPath = getLegacyGlobalSuggestConfigPath();
+  const globalConfig = readSuggestConfigFile(globalPath);
   if (globalConfig.model?.trim()) {
     return { value: globalConfig.model.trim(), source: "global-json", path: globalPath, field: "model" };
   }
@@ -361,19 +361,19 @@ function getConfiguredModelName(cwd: string): string {
   return getConfiguredModelInfo(cwd).value;
 }
 
-async function writeProjectOracleModelConfig(cwd: string, model: string | null): Promise<void> {
+async function writeProjectSuggestModelConfig(cwd: string, model: string | null): Promise<void> {
   if (!cwd) return;
   const manager = SettingsManager.create(cwd);
   await manager.reload();
   const projectSettings = manager.getProjectSettings() as Record<string, unknown>;
-  const existing = normalizeOracleConfig(projectSettings[ORACLE_SETTINGS_KEY]);
+  const existing = normalizeSuggestConfig(projectSettings[SUGGEST_SETTINGS_KEY]);
 
   if (model && model !== DEFAULT_SUGGESTION_MODEL) {
     existing.model = model;
     delete existing.defaultModel;
-    projectSettings[ORACLE_SETTINGS_KEY] = existing;
+    projectSettings[SUGGEST_SETTINGS_KEY] = existing;
   } else {
-    delete projectSettings[ORACLE_SETTINGS_KEY];
+    delete projectSettings[SUGGEST_SETTINGS_KEY];
   }
 
   const internal = manager as unknown as {
@@ -381,21 +381,21 @@ async function writeProjectOracleModelConfig(cwd: string, model: string | null):
     saveProjectSettings: (settings: Record<string, unknown>) => void;
     flush: () => Promise<void>;
   };
-  internal.modifiedProjectFields.add(ORACLE_SETTINGS_KEY);
+  internal.modifiedProjectFields.add(SUGGEST_SETTINGS_KEY);
   internal.saveProjectSettings(projectSettings);
   await internal.flush();
 }
 
-async function showOracleModelSelector(ctx: ExtensionContext): Promise<string | null> {
+async function showSuggestModelSelector(ctx: ExtensionContext): Promise<string | null> {
   if (!ctx.hasUI) return null;
 
   const availableModels = safeGetAvailableModels(ctx.modelRegistry);
   if (availableModels.length === 0) {
-    ctx.ui.notify("No authenticated models available for Oracle.", "warning");
+    ctx.ui.notify("No authenticated models available for Suggest.", "warning");
     return null;
   }
 
-  const items: OracleModelItem[] = availableModels.map((model) => ({
+  const items: SuggestModelItem[] = availableModels.map((model) => ({
     provider: model.provider,
     id: model.id,
     fullId: `${model.provider}/${model.id}`,
@@ -456,7 +456,7 @@ async function showOracleModelSelector(ctx: ExtensionContext): Promise<string | 
     }
 
     container.addChild(new DynamicBorder((s) => colors.primary(s)));
-    container.addChild(new Text(colors.primary(theme.bold(" Select Oracle Model")), 0, 0));
+    container.addChild(new Text(colors.primary(theme.bold(" Select Suggest Model")), 0, 0));
     container.addChild(new Text(colors.meta(`Current: ${configured}`), 0, 0));
     container.addChild(new Spacer(1));
     container.addChild(searchInput);
@@ -509,7 +509,7 @@ function buildPayloadPreview(input: string, resolvedModel: string, modelResoluti
     "extensions=disabled",
     "skills=disabled",
     "promptTemplates=disabled",
-    `systemPrompt=${ORACLE_SYSTEM_PROMPT.replace(/\s+/g, " ").trim()}`,
+    `systemPrompt=${SUGGEST_SYSTEM_PROMPT.replace(/\s+/g, " ").trim()}`,
     `userInput=${input.replace(/\s+/g, " ").trim()}`,
   ].join("\n"), 1200);
 }
@@ -537,13 +537,13 @@ async function resolveSuggestionModel(
       const currentLabel = currentModel ? `${currentModel.provider}/${currentModel.id}` : "none";
       if (ctx.hasUI) {
         ctx.ui.notify(
-          `Oracle: configured model "${configured}" not found in registry (provider extension loaded? correct model id?). Falling back to ${currentLabel}.`,
+          `Suggest: configured model "${configured}" not found in registry (provider extension loaded? correct model id?). Falling back to ${currentLabel}.`,
           "warning",
         );
       }
       return {
         model: currentModel,
-        reason: `configured model ${configured} was not found in Oracle's internal model registry; falling back to current model ${currentLabel}`,
+        reason: `configured model ${configured} was not found in Suggest's internal model registry; falling back to current model ${currentLabel}`,
       };
     }
   }
@@ -560,7 +560,7 @@ async function resolveSuggestionModel(
   const available = safeGetAvailableModels(modelRegistry);
   const fallback = available.find((m) => m.provider && m.id);
   if (fallback) return { model: fallback, reason: `falling back to first available model ${fallback.provider}/${fallback.id}` };
-  return { model: undefined, reason: "no available model for oracle" };
+  return { model: undefined, reason: "no available model for suggest" };
 }
 
 async function generateSuggestion(
@@ -574,10 +574,10 @@ async function generateSuggestion(
   filterReason: string | null;
   resolvedModel: string | null;
   modelResolutionReason: string | null;
-  oracleInputPreview: string;
-  oraclePayloadPreview: string;
-  oracleMessageCount: number;
-  oracleMessageRoles: string;
+  suggestInputPreview: string;
+  suggestPayloadPreview: string;
+  suggestMessageCount: number;
+  suggestMessageRoles: string;
   assistantContentKind: string | null;
   assistantContentPreview: string | null;
 }> {
@@ -587,13 +587,13 @@ async function generateSuggestion(
     return {
       suggestions: [],
       rawSuggestion: null,
-      filterReason: "no available model for oracle",
+      filterReason: "no available model for suggest",
       resolvedModel: null,
       modelResolutionReason: resolution.reason,
-      oracleInputPreview: truncate(input, 300),
-      oraclePayloadPreview: truncate(`model=none\nresolution=${resolution.reason}\nuserInput=${input.replace(/\s+/g, " ").trim()}`, 1200),
-      oracleMessageCount: 0,
-      oracleMessageRoles: "none",
+      suggestInputPreview: truncate(input, 300),
+      suggestPayloadPreview: truncate(`model=none\nresolution=${resolution.reason}\nuserInput=${input.replace(/\s+/g, " ").trim()}`, 1200),
+      suggestMessageCount: 0,
+      suggestMessageRoles: "none",
       assistantContentKind: null,
       assistantContentPreview: null,
     };
@@ -604,50 +604,50 @@ async function generateSuggestion(
     return {
       suggestions: [],
       rawSuggestion: null,
-      filterReason: "resolved oracle model missing provider or id",
+      filterReason: "resolved suggest model missing provider or id",
       resolvedModel: resolvedModel.includes("undefined") ? null : resolvedModel,
       modelResolutionReason: resolution.reason,
-      oracleInputPreview: truncate(input, 300),
-      oraclePayloadPreview: truncate(`model=${resolvedModel}\nresolution=${resolution.reason}\nerror=resolved model missing provider or id`, 1200),
-      oracleMessageCount: 0,
-      oracleMessageRoles: "none",
+      suggestInputPreview: truncate(input, 300),
+      suggestPayloadPreview: truncate(`model=${resolvedModel}\nresolution=${resolution.reason}\nerror=resolved model missing provider or id`, 1200),
+      suggestMessageCount: 0,
+      suggestMessageRoles: "none",
       assistantContentKind: null,
       assistantContentPreview: null,
     };
   }
-  const oraclePayloadPreview = buildPayloadPreview(input, resolvedModel, resolution.reason);
+  const suggestPayloadPreview = buildPayloadPreview(input, resolvedModel, resolution.reason);
 
-  const oracleCwd = (ctx.cwd && typeof ctx.cwd === "string" && ctx.cwd.length > 0) ? ctx.cwd : process.cwd();
-  if (!oracleCwd) {
+  const suggestCwd = (ctx.cwd && typeof ctx.cwd === "string" && ctx.cwd.length > 0) ? ctx.cwd : process.cwd();
+  if (!suggestCwd) {
     return {
       suggestions: [],
       rawSuggestion: null,
-      filterReason: "no valid working directory for oracle session",
+      filterReason: "no valid working directory for suggest session",
       resolvedModel: `${model.provider}/${model.id}`,
       modelResolutionReason: resolution.reason,
-      oracleInputPreview: truncate(input, 300),
-      oraclePayloadPreview: truncate(`model=${model.provider}/${model.id}\nresolution=${resolution.reason}\nerror=no cwd`, 1200),
-      oracleMessageCount: 0,
-      oracleMessageRoles: "none",
+      suggestInputPreview: truncate(input, 300),
+      suggestPayloadPreview: truncate(`model=${model.provider}/${model.id}\nresolution=${resolution.reason}\nerror=no cwd`, 1200),
+      suggestMessageCount: 0,
+      suggestMessageRoles: "none",
       assistantContentKind: null,
       assistantContentPreview: null,
     };
   }
-  const settingsManager = SettingsManager.create(oracleCwd);
+  const settingsManager = SettingsManager.create(suggestCwd);
   const resourceLoader = new DefaultResourceLoader({
-    cwd: oracleCwd,
+    cwd: suggestCwd,
     agentDir: getAgentDir(),
     settingsManager,
     noExtensions: true,
     noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
-    systemPrompt: ORACLE_SYSTEM_PROMPT,
+    systemPrompt: SUGGEST_SYSTEM_PROMPT,
   });
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd: oracleCwd,
+    cwd: suggestCwd,
     modelRegistry: ctx.modelRegistry,
     model,
     thinkingLevel: "off",
@@ -681,10 +681,10 @@ async function generateSuggestion(
       filterReason: parsed.reason,
       resolvedModel,
       modelResolutionReason: resolution.reason,
-      oracleInputPreview: truncate(input, 300),
-      oraclePayloadPreview,
-      oracleMessageCount: session.messages.length,
-      oracleMessageRoles: session.messages.map((message) => message.role).join(", "),
+      suggestInputPreview: truncate(input, 300),
+      suggestPayloadPreview,
+      suggestMessageCount: session.messages.length,
+      suggestMessageRoles: session.messages.map((message) => message.role).join(", "),
       assistantContentKind,
       assistantContentPreview,
     };
@@ -693,11 +693,11 @@ async function generateSuggestion(
   }
 }
 
-export default function oracleExtension(pi: ExtensionAPI): void {
-  let editorRef: OracleEditor | null = null;
+export default function suggestExtension(pi: ExtensionAPI): void {
+  let editorRef: SuggestEditor | null = null;
   let lastUIContext: ExtensionContext | undefined;
 
-  const state: OracleState = {
+  const state: SuggestState = {
     enabled: true,
     debug: false,
     suggestions: [],
@@ -710,10 +710,10 @@ export default function oracleExtension(pi: ExtensionAPI): void {
     lastResolvedModel: null,
     lastGenerationStatus: null,
     lastModelResolutionReason: null,
-    lastOracleInputPreview: null,
-    lastOraclePayloadPreview: null,
-    lastOracleMessageCount: null,
-    lastOracleMessageRoles: null,
+    lastSuggestInputPreview: null,
+    lastSuggestPayloadPreview: null,
+    lastSuggestMessageCount: null,
+    lastSuggestMessageRoles: null,
     lastAssistantContentKind: null,
     lastAssistantContentPreview: null,
     generationId: 0,
@@ -722,7 +722,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
   };
   let fancyFooterActive = false;
 
-  // Active generation session — aborted when a new generation starts or oracle is cleared.
+  // Active generation session — aborted when a new generation starts or suggest is cleared.
   let activeSession: { abort(): Promise<void>; dispose(): void } | null = null;
 
   async function abortActiveSession(): Promise<void> {
@@ -737,9 +737,9 @@ export default function oracleExtension(pi: ExtensionAPI): void {
   }
 
   const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
-    id: "pi-agent-kit.oracle",
-    label: "Oracle",
-    description: "Shows whether oracle suggestions are enabled for the current session.",
+    id: "pi-agent-kit.suggest",
+    label: "Suggest",
+    description: "Shows whether suggest suggestions are enabled for the current session.",
     defaults: {
       row: 1,
       position: 12,
@@ -748,7 +748,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
     },
     textColor: "accent",
     visible: () => state.generating || state.suggestions.length > 0,
-    renderText: () => state.generating ? "oracle:gen" : "oracle:ready",
+    renderText: () => state.generating ? "suggest:gen" : "suggest:ready",
   })).then((active) => {
     fancyFooterActive = active;
     return active;
@@ -768,34 +768,34 @@ export default function oracleExtension(pi: ExtensionAPI): void {
   }
 
   function syncEditor(): void {
-    editorRef?.setOracleEnabled(state.enabled);
-    editorRef?.setOracleSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
-    editorRef?.setOracleHistoryAvailable(state.suggestionHistory.length > 0);
+    editorRef?.setEnabled(state.enabled);
+    editorRef?.setSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
+    editorRef?.setHistoryAvailable(state.suggestionHistory.length > 0);
   }
 
   function installEditor(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
     lastUIContext = ctx;
     ctx.ui.setEditorComponent((tui, theme, kb) => {
-      const editor = new OracleEditor(tui, theme, kb);
-      editor.setOracleEnabled(state.enabled);
-      editor.setOracleSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
-      editor.setOnAcceptOracleSuggestion(() => {
+      const editor = new SuggestEditor(tui, theme, kb);
+      editor.setEnabled(state.enabled);
+      editor.setSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
+      editor.setOnAcceptSuggestion(() => {
         // Keep suggestions after accept so the ghost reappears
         // if the user deletes the inserted text
         syncEditor();
       });
-      editor.setOnSelectOracleSuggestion((index) => {
+      editor.setOnSelectSuggestion((index) => {
         state.selectedSuggestionIndex = index;
         if (lastUIContext) renderSuggestion(lastUIContext);
       });
-      editor.setOnDismissOracleSuggestion(() => {
+      editor.setOnDismissSuggestion(() => {
         clearSuggestion(lastUIContext);
       });
-      editor.setOnUndoOracleSuggestion(() => {
+      editor.setOnUndoSuggestion(() => {
         undoSuggestionDismissal(lastUIContext);
       });
-      editor.setOracleHistoryAvailable(state.suggestionHistory.length > 0);
+      editor.setHistoryAvailable(state.suggestionHistory.length > 0);
       editorRef = editor;
       return editor;
     });
@@ -826,10 +826,10 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       state.lastResolvedModel = null;
       state.lastGenerationStatus = null;
       state.lastModelResolutionReason = null;
-      state.lastOracleInputPreview = null;
-      state.lastOraclePayloadPreview = null;
-      state.lastOracleMessageCount = null;
-      state.lastOracleMessageRoles = null;
+      state.lastSuggestInputPreview = null;
+      state.lastSuggestPayloadPreview = null;
+      state.lastSuggestMessageCount = null;
+      state.lastSuggestMessageRoles = null;
       state.lastAssistantContentKind = null;
       state.lastAssistantContentPreview = null;
     }
@@ -882,7 +882,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       const prefix = count > 1 ? `[${index}/${count}]` : "";
       const parts = [prefix, help, insert, undo].filter(Boolean);
       const widgetLines = [
-        `${colors.primary(`Oracle ${parts.join(" · ")}`)}`,
+        `${colors.primary(`Suggest ${parts.join(" · ")}`)}`,
       ];
       ctx.ui.setWidget(WIDGET_ID, widgetLines);
     } else {
@@ -906,7 +906,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         : "";
 
       const widgetLines = [
-        colors.primary("Oracle:"),
+        colors.primary("Suggest:"),
         ...suggestionLines,
         colors.meta(helpText + historyText),
       ];
@@ -918,7 +918,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       void refreshFancyFooter(pi);
       return;
     }
-    ctx.ui.setStatus(STATUS_ID, colors.primary("oracle:on"));
+    ctx.ui.setStatus(STATUS_ID, colors.primary("suggest:on"));
   }
 
   pi.on("session_start", async (_event, ctx) => {
@@ -987,10 +987,10 @@ export default function oracleExtension(pi: ExtensionAPI): void {
     state.lastResolvedModel = null;
     state.lastGenerationStatus = "generating";
     state.lastModelResolutionReason = null;
-    state.lastOracleInputPreview = truncate(input, 300);
-    state.lastOraclePayloadPreview = null;
-    state.lastOracleMessageCount = null;
-    state.lastOracleMessageRoles = null;
+    state.lastSuggestInputPreview = truncate(input, 300);
+    state.lastSuggestPayloadPreview = null;
+    state.lastSuggestMessageCount = null;
+    state.lastSuggestMessageRoles = null;
     state.lastAssistantContentKind = null;
     state.lastAssistantContentPreview = null;
     const generationId = state.generationId + 1;
@@ -998,8 +998,8 @@ export default function oracleExtension(pi: ExtensionAPI): void {
 
     try {
       if (state.debug && ctx.hasUI) {
-        ctx.ui.notify(`Oracle debug: generating with ${getConfiguredModelName(ctx.cwd)}` + (ctx.model ? ` (current ${ctx.model.provider}/${ctx.model.id})` : ""), "info");
-        ctx.ui.notify(`Oracle payload:\n${truncate(input, 500)}`, "info");
+        ctx.ui.notify(`Suggest debug: generating with ${getConfiguredModelName(ctx.cwd)}` + (ctx.model ? ` (current ${ctx.model.provider}/${ctx.model.id})` : ""), "info");
+        ctx.ui.notify(`Suggest payload:\n${truncate(input, 500)}`, "info");
       }
       const result = await generateSuggestion(ctx, ctx.model, input, (session) => {
         activeSession = session;
@@ -1011,10 +1011,10 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       state.lastFilterReason = result.filterReason;
       state.lastResolvedModel = result.resolvedModel;
       state.lastModelResolutionReason = result.modelResolutionReason;
-      state.lastOracleInputPreview = result.oracleInputPreview;
-      state.lastOraclePayloadPreview = result.oraclePayloadPreview;
-      state.lastOracleMessageCount = result.oracleMessageCount;
-      state.lastOracleMessageRoles = result.oracleMessageRoles;
+      state.lastSuggestInputPreview = result.suggestInputPreview;
+      state.lastSuggestPayloadPreview = result.suggestPayloadPreview;
+      state.lastSuggestMessageCount = result.suggestMessageCount;
+      state.lastSuggestMessageRoles = result.suggestMessageRoles;
       state.lastAssistantContentKind = result.assistantContentKind;
       state.lastAssistantContentPreview = result.assistantContentPreview;
 
@@ -1022,7 +1022,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         state.lastGenerationStatus = result.filterReason ? "filtered" : "no-suggestion";
         if (state.debug && ctx.hasUI) {
           ctx.ui.notify(
-            `Oracle debug: no suggestion. Resolved=${result.resolvedModel ?? "none"}; reason=${result.filterReason ?? "none"}; content=${result.assistantContentKind ?? "none"}`,
+            `Suggest debug: no suggestion. Resolved=${result.resolvedModel ?? "none"}; reason=${result.filterReason ?? "none"}; content=${result.assistantContentKind ?? "none"}`,
             "warning",
           );
         }
@@ -1046,7 +1046,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       state.generating = false;
       state.lastGenerationStatus = "ready";
       if (state.debug && ctx.hasUI) {
-        ctx.ui.notify(`Oracle debug: suggestions ready -> ${result.suggestions.join(" | ")}`, "info");
+        ctx.ui.notify(`Suggest debug: suggestions ready -> ${result.suggestions.join(" | ")}`, "info");
       }
       syncEditor();
       renderSuggestion(ctx);
@@ -1063,15 +1063,15 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       if (ctx.hasUI) {
         if (state.debug) {
           // eslint-disable-next-line no-console
-          console.error("Oracle failed:", error);
+          console.error("Suggest failed:", error);
         }
-        ctx.ui.notify(`Oracle failed: ${state.lastError}`, "warning");
+        ctx.ui.notify(`Suggest failed: ${state.lastError}`, "warning");
       }
     }
   });
 
-  pi.registerCommand("oracle", {
-    description: "Toggle oracle suggestions or manage oracle settings",
+  pi.registerCommand("suggest", {
+    description: "Toggle suggest suggestions or manage suggest settings",
     getArgumentCompletions: (prefix: string) => {
       const trimmed = prefix.trimStart();
       const parts = trimmed.split(/\s+/).filter(Boolean);
@@ -1132,10 +1132,10 @@ export default function oracleExtension(pi: ExtensionAPI): void {
             `Last filter reason: ${state.lastFilterReason ?? "none"}`,
             `Last error: ${state.lastError ?? "none"}`,
             `Last turn key: ${state.sourceTurnKey ?? "none"}`,
-            `Oracle input preview: ${state.lastOracleInputPreview ?? "none"}`,
-            `Oracle payload preview: ${state.lastOraclePayloadPreview ?? "none"}`,
-            `Oracle session message count: ${state.lastOracleMessageCount ?? "none"}`,
-            `Oracle session roles: ${state.lastOracleMessageRoles ?? "none"}`,
+            `Suggest input preview: ${state.lastSuggestInputPreview ?? "none"}`,
+            `Suggest payload preview: ${state.lastSuggestPayloadPreview ?? "none"}`,
+            `Suggest session message count: ${state.lastSuggestMessageCount ?? "none"}`,
+            `Suggest session roles: ${state.lastSuggestMessageRoles ?? "none"}`,
             `Assistant content kind: ${state.lastAssistantContentKind ?? "none"}`,
             `Assistant content preview: ${state.lastAssistantContentPreview ?? "none"}`,
           ].join("\n"),
@@ -1149,7 +1149,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
           const configured = getConfiguredModelInfo(ctx.cwd);
           ctx.ui.notify(
             [
-              `Oracle model: ${configured.value}`,
+              `Suggest model: ${configured.value}`,
               `Source: ${configured.source}`,
               `Path: ${configured.path ?? "none"}`,
               `Field: ${configured.field ?? "none"}`,
@@ -1158,13 +1158,13 @@ export default function oracleExtension(pi: ExtensionAPI): void {
           );
           return;
         }
-        const selected = await showOracleModelSelector(ctx);
+        const selected = await showSuggestModelSelector(ctx);
         if (!selected) {
-          ctx.ui.notify("Oracle model selection cancelled", "info");
+          ctx.ui.notify("Suggest model selection cancelled", "info");
           return;
         }
-        await writeProjectOracleModelConfig(ctx.cwd, selected);
-        ctx.ui.notify(`Oracle model set to ${selected} (${getProjectOracleConfigPath(ctx.cwd)}#${ORACLE_SETTINGS_KEY})`, "info");
+        await writeProjectSuggestModelConfig(ctx.cwd, selected);
+        ctx.ui.notify(`Suggest model set to ${selected} (${getProjectSuggestConfigPath(ctx.cwd)}#${SUGGEST_SETTINGS_KEY})`, "info");
         return;
       }
 
@@ -1172,13 +1172,13 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         const configured = getConfiguredModelInfo(ctx.cwd);
         ctx.ui.notify(
           [
-            `Oracle model: ${configured.value}`,
+            `Suggest model: ${configured.value}`,
             `Source: ${configured.source}`,
             `Path: ${configured.path ?? "none"}`,
             `Field: ${configured.field ?? "none"}`,
             configured.source === "env" || configured.source === "legacy-env"
               ? `Note: environment variables override settings and legacy JSON config`
-              : `Use /oracle model, /oracle model <provider/model-id>, /oracle model current, or /oracle model clear`,
+              : `Use /suggest model, /suggest model <provider/model-id>, /suggest model current, or /suggest model clear`,
           ].join("\n"),
           "info",
         );
@@ -1186,25 +1186,25 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       }
 
       if (sub === "model clear") {
-        await writeProjectOracleModelConfig(ctx.cwd, null);
-        ctx.ui.notify(`Cleared project oracle model override (${getProjectOracleConfigPath(ctx.cwd)}#${ORACLE_SETTINGS_KEY})`, "info");
+        await writeProjectSuggestModelConfig(ctx.cwd, null);
+        ctx.ui.notify(`Cleared project suggest model override (${getProjectSuggestConfigPath(ctx.cwd)}#${SUGGEST_SETTINGS_KEY})`, "info");
         return;
       }
 
       if (sub === "model current") {
-        await writeProjectOracleModelConfig(ctx.cwd, DEFAULT_SUGGESTION_MODEL);
+        await writeProjectSuggestModelConfig(ctx.cwd, DEFAULT_SUGGESTION_MODEL);
         const configured = getConfiguredModelInfo(ctx.cwd);
         const detail = configured.source === "default"
-          ? "Oracle will use the current session model by default"
+          ? "Suggest will use the current session model by default"
           : `Project override cleared; effective source is now ${configured.source} (${configured.value})`;
-        ctx.ui.notify(`${detail}\nConfig: ${getProjectOracleConfigPath(ctx.cwd)}#${ORACLE_SETTINGS_KEY}`, "info");
+        ctx.ui.notify(`${detail}\nConfig: ${getProjectSuggestConfigPath(ctx.cwd)}#${SUGGEST_SETTINGS_KEY}`, "info");
         return;
       }
 
       if (sub.startsWith("model ")) {
         const modelRef = raw.slice("model ".length).trim();
         if (!modelRef || modelRef === "status" || modelRef === "clear" || modelRef === "current") {
-          ctx.ui.notify("Usage: /oracle model <provider/model-id> | current | clear | status", "warning");
+          ctx.ui.notify("Usage: /suggest model <provider/model-id> | current | clear | status", "warning");
           return;
         }
         const [provider, ...idParts] = modelRef.split("/");
@@ -1218,30 +1218,30 @@ export default function oracleExtension(pi: ExtensionAPI): void {
           ctx.ui.notify(`Model not found: ${modelRef}`, "error");
           return;
         }
-        await writeProjectOracleModelConfig(ctx.cwd, `${model.provider}/${model.id}`);
-        ctx.ui.notify(`Oracle model set to ${model.provider}/${model.id} (${getProjectOracleConfigPath(ctx.cwd)}#${ORACLE_SETTINGS_KEY})`, "info");
+        await writeProjectSuggestModelConfig(ctx.cwd, `${model.provider}/${model.id}`);
+        ctx.ui.notify(`Suggest model set to ${model.provider}/${model.id} (${getProjectSuggestConfigPath(ctx.cwd)}#${SUGGEST_SETTINGS_KEY})`, "info");
         return;
       }
 
       if (sub === "undo") {
         undoSuggestionDismissal(ctx);
         if (state.suggestions.length > 0) {
-          ctx.ui.notify(`Oracle: restored suggestion "${getSelectedSuggestion()}" from history`, "info");
+          ctx.ui.notify(`Suggest: restored suggestion "${getSelectedSuggestion()}" from history`, "info");
         } else {
-          ctx.ui.notify("Oracle: no dismissed suggestions to restore", "info");
+          ctx.ui.notify("Suggest: no dismissed suggestions to restore", "info");
         }
         return;
       }
 
       if (sub === "debug on") {
         state.debug = true;
-        ctx.ui.notify("Oracle debug enabled", "info");
+        ctx.ui.notify("Suggest debug enabled", "info");
         return;
       }
 
       if (sub === "debug off") {
         state.debug = false;
-        ctx.ui.notify("Oracle debug disabled", "info");
+        ctx.ui.notify("Suggest debug disabled", "info");
         return;
       }
 
@@ -1249,7 +1249,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         state.miniMode = !state.miniMode;
         syncEditor();
         renderSuggestion(ctx);
-        ctx.ui.notify(`Oracle mini mode ${state.miniMode ? "on" : "off"}`, "info");
+        ctx.ui.notify(`Suggest mini mode ${state.miniMode ? "on" : "off"}`, "info");
         return;
       }
 
@@ -1257,7 +1257,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         state.miniMode = true;
         syncEditor();
         renderSuggestion(ctx);
-        ctx.ui.notify("Oracle mini mode on", "info");
+        ctx.ui.notify("Suggest mini mode on", "info");
         return;
       }
 
@@ -1265,7 +1265,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         state.miniMode = false;
         syncEditor();
         renderSuggestion(ctx);
-        ctx.ui.notify("Oracle mini mode off", "info");
+        ctx.ui.notify("Suggest mini mode off", "info");
         return;
       }
 
@@ -1273,14 +1273,14 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         state.enabled = true;
         syncEditor();
         renderSuggestion(ctx);
-        ctx.ui.notify("Oracle enabled", "info");
+        ctx.ui.notify("Suggest enabled", "info");
         return;
       }
 
       if (sub === "off") {
         state.enabled = false;
         clearSuggestion(ctx);
-        ctx.ui.notify("Oracle disabled", "info");
+        ctx.ui.notify("Suggest disabled", "info");
         return;
       }
 
@@ -1288,7 +1288,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       syncEditor();
       if (!state.enabled) clearSuggestion(ctx);
       else renderSuggestion(ctx);
-      ctx.ui.notify(`Oracle ${state.enabled ? "enabled" : "disabled"}`, "info");
+      ctx.ui.notify(`Suggest ${state.enabled ? "enabled" : "disabled"}`, "info");
     },
   });
 }

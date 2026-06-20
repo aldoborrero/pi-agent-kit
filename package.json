@@ -17,16 +17,17 @@
     "url": "https://github.com/aldoborrero/pi-agent-kit.git"
   },
   "dependencies": {
+    "acorn": "^8.16.0",
     "codex-plugin-cc": "github:openai/codex-plugin-cc",
-    "pi-interactive-shell": "github:nicobailon/pi-interactive-shell",
+    "gray-matter": "^4.0.3",
     "pi-lsp-extension": "github:samfoy/pi-lsp-extension",
     "pi-mcp-adapter": "github:nicobailon/pi-mcp-adapter"
   },
   "peerDependencies": {
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-agent-core": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "@sinclair/typebox": "*"
   },
   "pi": {
@@ -52,36 +53,27 @@
       "extensions/exit",
       "extensions/footer",
       "extensions/git-checkpoint",
-      "extensions/git-commit-context",
       "extensions/github-search",
-      "extensions/groq-provider",
       "extensions/handoff",
       "extensions/inline-bash",
       "extensions/jina",
       "extensions/loop",
       "extensions/until",
       "extensions/notify",
-      "extensions/openrouter-provider",
       "extensions/permission-gate",
       "extensions/plan-mode",
       "extensions/questionnaire",
-      "extensions/recorder",
       "extensions/sandbox",
       "extensions/skill-namespaces",
       "extensions/subagent",
-      "extensions/together-provider",
       "extensions/tuicr",
       "extensions/bitwarden",
       "extensions/voice",
       "extensions/codex",
       "extensions/context",
       "extensions/walkie",
-      "extensions/oracle",
-      "extensions/web-tools",
-      "extensions/workflows",
-      "node_modules/pi-lsp-extension",
-      "node_modules/pi-mcp-adapter",
-      "node_modules/pi-interactive-shell"
+      "extensions/suggest",
+      "extensions/workflows"
     ]
   }
 }
