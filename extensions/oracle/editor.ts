@@ -1,17 +1,21 @@
-import { CustomEditor } from "@mariozechner/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import { CustomEditor } from "@earendil-works/pi-coding-agent";
+import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 const CURSOR_AT_END = "\x1b[7m \x1b[0m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
+const ORACLE_UNDO_KEY = "alt+o";
+
 export class OracleEditor extends CustomEditor {
   private oracleSuggestions: string[] = [];
   private selectedSuggestionIndex = 0;
   private oracleEnabled = true;
+  private oracleHistoryAvailable = false;
   private onAcceptOracleSuggestion?: () => void;
   private onSelectOracleSuggestion?: ((index: number) => void) | undefined;
   private onDismissOracleSuggestion?: () => void;
+  private onUndoOracleSuggestion?: () => void;
 
   setOracleSuggestions(suggestions: string[], selectedIndex = 0): void {
     this.oracleSuggestions = suggestions.map((text) => text.trim()).filter(Boolean);
@@ -21,6 +25,11 @@ export class OracleEditor extends CustomEditor {
 
   setOracleEnabled(enabled: boolean): void {
     this.oracleEnabled = enabled;
+    this.tui.requestRender();
+  }
+
+  setOracleHistoryAvailable(available: boolean): void {
+    this.oracleHistoryAvailable = available;
     this.tui.requestRender();
   }
 
@@ -42,6 +51,10 @@ export class OracleEditor extends CustomEditor {
     this.onDismissOracleSuggestion = handler;
   }
 
+  setOnUndoOracleSuggestion(handler: (() => void) | undefined): void {
+    this.onUndoOracleSuggestion = handler;
+  }
+
   private getSelectedSuggestion(): string | null {
     if (this.oracleSuggestions.length === 0) return null;
     return this.oracleSuggestions[this.selectedSuggestionIndex] ?? null;
@@ -60,20 +73,22 @@ export class OracleEditor extends CustomEditor {
   }
 
   override handleInput(data: string): void {
+    // Undo dismissal: Alt+O (works regardless of ghost state)
+    if (matchesKey(data, ORACLE_UNDO_KEY)) {
+      if (this.oracleHistoryAvailable) {
+        this.onUndoOracleSuggestion?.();
+        return;
+      }
+    }
+
     if (this.shouldShowOracleGhost()) {
-      // Accept suggestion
+      // Accept suggestion — keep suggestions so ghost reappears if the user deletes the text
       if (matchesKey(data, "tab") || matchesKey(data, "right")) {
         this.insertTextAtCursor(this.getSelectedSuggestion()!);
-        this.clearOracleSuggestion();
         this.onAcceptOracleSuggestion?.();
         return;
       }
-      // Dismiss suggestion — Up/Down then fall through to native message history
-      if (matchesKey(data, "escape")) {
-        this.clearOracleSuggestion();
-        this.onDismissOracleSuggestion?.();
-        return;
-      }
+      // Escape does not dismiss anymore — suggestions persist until overwritten
       // Cycle through multiple suggestions with Alt+Up / Alt+Down
       if (this.oracleSuggestions.length > 1) {
         if (matchesKey(data, "alt+up")) {
@@ -85,12 +100,6 @@ export class OracleEditor extends CustomEditor {
           return;
         }
       }
-      // Up/Down: dismiss oracle and fall through to native message history scroll
-      if (matchesKey(data, "up") || matchesKey(data, "down")) {
-        this.clearOracleSuggestion();
-        this.onDismissOracleSuggestion?.();
-        // fall through — no return
-      }
     }
 
     super.handleInput(data);
@@ -98,7 +107,9 @@ export class OracleEditor extends CustomEditor {
 
   override render(width: number): string[] {
     const lines = super.render(width);
-    if (!this.shouldShowOracleGhost()) return lines;
+    const ghostVisible = this.shouldShowOracleGhost();
+
+    if (!ghostVisible) return lines;
 
     const editableLineIndex = lines.findIndex((line, index) => {
       if (index === 0 || index === lines.length - 1) return false;

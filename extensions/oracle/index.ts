@@ -1,7 +1,7 @@
 /// <reference path="./node-shim.d.ts" />
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { Model, TextContent } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Model, TextContent } from "@earendil-works/pi-ai";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
@@ -13,8 +13,8 @@ import {
   getAgentDir,
   type ExtensionAPI,
   type ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
-import { Container, fuzzyFilter, Input, Spacer, Text } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { Container, fuzzyFilter, Input, Spacer, Text } from "@earendil-works/pi-tui";
 import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
 import { createUiColors } from "../_shared/ui-colors.js";
 import { OracleEditor } from "./editor";
@@ -74,6 +74,12 @@ interface OracleState {
   lastAssistantContentKind: string | null;
   lastAssistantContentPreview: string | null;
   generationId: number;
+  suggestionHistory: Array<{
+    suggestions: string[];
+    selectedSuggestionIndex: number;
+    sourceTurnKey: string | null;
+  }>;
+  miniMode: boolean;
 }
 
 function truncate(text: string, maxChars: number): string {
@@ -103,6 +109,29 @@ function extractText(message: AgentMessage): string {
     .trim();
 }
 
+/** Work around older pi-coding-agent versions where hasConfiguredAuth() crashes on
+ *  providers registered with headers but no apiKey. */
+function safeGetAvailableModels(modelRegistry: ExtensionContext["modelRegistry"]): Model<any>[] {
+  try {
+    return modelRegistry.getAvailable();
+  } catch {
+    try {
+      return modelRegistry
+        .getAll()
+        .filter((m) => m && m.provider && m.id)
+        .filter((m) => {
+          try {
+            return modelRegistry.hasConfiguredAuth(m);
+          } catch {
+            return false;
+          }
+        });
+    } catch {
+      return [];
+    }
+  }
+}
+
 function buildTurnKey(messages: AgentMessage[]): string {
   const lastAssistantIndex = [...messages].reverse().findIndex(isAssistantMessage);
   const lastUserIndex = [...messages].reverse().findIndex(isUserMessage);
@@ -118,10 +147,11 @@ function buildSuggestionInput(messages: AgentMessage[], cwd: string): string | n
     .map((message) => {
       const text = extractText(message);
       if (!text) return null;
-      const capped = message.role === "assistant"
+      const role = message.role ?? "unknown";
+      const capped = role === "assistant"
         ? truncate(text, MAX_ASSISTANT_CHARS)
         : truncate(text, MAX_USER_CHARS);
-      return `${message.role.toUpperCase()}:\n${capped}`;
+      return `${role.toUpperCase()}:\n${capped}`;
     })
     .filter(Boolean)
     .join("\n\n");
@@ -138,7 +168,7 @@ function buildSuggestionInput(messages: AgentMessage[], cwd: string): string | n
 }
 
 function filterSuggestion(raw: string | null): { suggestion: string | null; reason: string | null } {
-  if (!raw) return { suggestion: null, reason: "model returned empty output" };
+  if (typeof raw !== "string" || !raw) return { suggestion: null, reason: "model returned empty output" };
   const suggestion = raw.trim();
   if (!suggestion) return { suggestion: null, reason: "model returned blank output" };
 
@@ -250,11 +280,11 @@ function getLegacyGlobalOracleConfigPath(): string {
 }
 
 function getProjectOracleConfigPath(cwd: string): string {
-  return join(cwd, ".pi", "settings.json");
+  return cwd ? join(cwd, ".pi", "settings.json") : ".pi/settings.json";
 }
 
 function getLegacyProjectOracleConfigPath(cwd: string): string {
-  return join(cwd, ".pi", "oracle.json");
+  return cwd ? join(cwd, ".pi", "oracle.json") : ".pi/oracle.json";
 }
 
 function readOracleConfigFile(path: string): OracleJsonConfig {
@@ -275,6 +305,7 @@ function normalizeOracleConfig(raw: unknown): OracleJsonConfig {
 }
 
 function readOracleSettings(cwd: string): { project: OracleJsonConfig; global: OracleJsonConfig } {
+  if (!cwd) return { project: {}, global: {} };
   const manager = SettingsManager.create(cwd);
   const projectSettings = manager.getProjectSettings() as Record<string, unknown>;
   const globalSettings = manager.getGlobalSettings() as Record<string, unknown>;
@@ -331,6 +362,7 @@ function getConfiguredModelName(cwd: string): string {
 }
 
 async function writeProjectOracleModelConfig(cwd: string, model: string | null): Promise<void> {
+  if (!cwd) return;
   const manager = SettingsManager.create(cwd);
   await manager.reload();
   const projectSettings = manager.getProjectSettings() as Record<string, unknown>;
@@ -357,14 +389,9 @@ async function writeProjectOracleModelConfig(cwd: string, model: string | null):
 async function showOracleModelSelector(ctx: ExtensionContext): Promise<string | null> {
   if (!ctx.hasUI) return null;
 
-  let availableModels: Model<any>[] = [];
-  try {
-    availableModels = ctx.modelRegistry.getAvailable();
-  } catch (error) {
-    ctx.ui.notify(
-      `Could not load available models: ${error instanceof Error ? error.message : String(error)}`,
-      "error",
-    );
+  const availableModels = safeGetAvailableModels(ctx.modelRegistry);
+  if (availableModels.length === 0) {
+    ctx.ui.notify("No authenticated models available for Oracle.", "warning");
     return null;
   }
 
@@ -500,7 +527,7 @@ async function resolveSuggestionModel(
 
   if (provider && modelId) {
     const explicit = modelRegistry.find(provider, modelId);
-    if (explicit) {
+    if (explicit && explicit.provider && explicit.id) {
       const apiKey = await modelRegistry.getApiKeyForProvider(explicit.provider);
       if (apiKey) return { model: explicit, reason: `using configured model ${configured}` };
       return { model: undefined, reason: `configured model ${configured} found, but no API key available for provider ${explicit.provider}` };
@@ -521,7 +548,7 @@ async function resolveSuggestionModel(
     }
   }
 
-  if (currentModel) {
+  if (currentModel && currentModel.provider && currentModel.id) {
     try {
       const apiKey = await modelRegistry.getApiKeyForProvider(currentModel.provider);
       if (apiKey) return { model: currentModel, reason: `using current session model ${currentModel.provider}/${currentModel.id}` };
@@ -530,8 +557,8 @@ async function resolveSuggestionModel(
     }
   }
 
-  const available = modelRegistry.getAvailable();
-  const fallback = available[0];
+  const available = safeGetAvailableModels(modelRegistry);
+  const fallback = available.find((m) => m.provider && m.id);
   if (fallback) return { model: fallback, reason: `falling back to first available model ${fallback.provider}/${fallback.id}` };
   return { model: undefined, reason: "no available model for oracle" };
 }
@@ -573,11 +600,43 @@ async function generateSuggestion(
   }
 
   const resolvedModel = `${model.provider}/${model.id}`;
+  if (!model.provider || !model.id) {
+    return {
+      suggestions: [],
+      rawSuggestion: null,
+      filterReason: "resolved oracle model missing provider or id",
+      resolvedModel: resolvedModel.includes("undefined") ? null : resolvedModel,
+      modelResolutionReason: resolution.reason,
+      oracleInputPreview: truncate(input, 300),
+      oraclePayloadPreview: truncate(`model=${resolvedModel}\nresolution=${resolution.reason}\nerror=resolved model missing provider or id`, 1200),
+      oracleMessageCount: 0,
+      oracleMessageRoles: "none",
+      assistantContentKind: null,
+      assistantContentPreview: null,
+    };
+  }
   const oraclePayloadPreview = buildPayloadPreview(input, resolvedModel, resolution.reason);
 
-  const settingsManager = SettingsManager.create(ctx.cwd);
+  const oracleCwd = (ctx.cwd && typeof ctx.cwd === "string" && ctx.cwd.length > 0) ? ctx.cwd : process.cwd();
+  if (!oracleCwd) {
+    return {
+      suggestions: [],
+      rawSuggestion: null,
+      filterReason: "no valid working directory for oracle session",
+      resolvedModel: `${model.provider}/${model.id}`,
+      modelResolutionReason: resolution.reason,
+      oracleInputPreview: truncate(input, 300),
+      oraclePayloadPreview: truncate(`model=${model.provider}/${model.id}\nresolution=${resolution.reason}\nerror=no cwd`, 1200),
+      oracleMessageCount: 0,
+      oracleMessageRoles: "none",
+      assistantContentKind: null,
+      assistantContentPreview: null,
+    };
+  }
+  const settingsManager = SettingsManager.create(oracleCwd);
   const resourceLoader = new DefaultResourceLoader({
-    cwd: ctx.cwd,
+    cwd: oracleCwd,
+    agentDir: getAgentDir(),
     settingsManager,
     noExtensions: true,
     noSkills: true,
@@ -588,7 +647,7 @@ async function generateSuggestion(
   await resourceLoader.reload();
 
   const { session } = await createAgentSession({
-    cwd: ctx.cwd,
+    cwd: oracleCwd,
     modelRegistry: ctx.modelRegistry,
     model,
     thinkingLevel: "off",
@@ -658,6 +717,8 @@ export default function oracleExtension(pi: ExtensionAPI): void {
     lastAssistantContentKind: null,
     lastAssistantContentPreview: null,
     generationId: 0,
+    suggestionHistory: [],
+    miniMode: false,
   };
   let fancyFooterActive = false;
 
@@ -709,6 +770,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
   function syncEditor(): void {
     editorRef?.setOracleEnabled(state.enabled);
     editorRef?.setOracleSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
+    editorRef?.setOracleHistoryAvailable(state.suggestionHistory.length > 0);
   }
 
   function installEditor(ctx: ExtensionContext): void {
@@ -719,7 +781,9 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       editor.setOracleEnabled(state.enabled);
       editor.setOracleSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
       editor.setOnAcceptOracleSuggestion(() => {
-        clearSuggestion(lastUIContext);
+        // Keep suggestions after accept so the ghost reappears
+        // if the user deletes the inserted text
+        syncEditor();
       });
       editor.setOnSelectOracleSuggestion((index) => {
         state.selectedSuggestionIndex = index;
@@ -728,6 +792,10 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       editor.setOnDismissOracleSuggestion(() => {
         clearSuggestion(lastUIContext);
       });
+      editor.setOnUndoOracleSuggestion(() => {
+        undoSuggestionDismissal(lastUIContext);
+      });
+      editor.setOracleHistoryAvailable(state.suggestionHistory.length > 0);
       editorRef = editor;
       return editor;
     });
@@ -736,6 +804,17 @@ export default function oracleExtension(pi: ExtensionAPI): void {
   function clearSuggestion(ctx?: ExtensionContext, options?: { preserveDiagnostics?: boolean }): void {
     void abortActiveSession();
     if (ctx?.hasUI) lastUIContext = ctx;
+    // Save to history before clearing
+    if (state.suggestions.length > 0) {
+      state.suggestionHistory.push({
+        suggestions: [...state.suggestions],
+        selectedSuggestionIndex: state.selectedSuggestionIndex,
+        sourceTurnKey: state.sourceTurnKey,
+      });
+      if (state.suggestionHistory.length > 10) {
+        state.suggestionHistory.shift();
+      }
+    }
     state.suggestions = [];
     state.selectedSuggestionIndex = 0;
     state.sourceTurnKey = null;
@@ -765,6 +844,18 @@ export default function oracleExtension(pi: ExtensionAPI): void {
     }
   }
 
+  function undoSuggestionDismissal(ctx?: ExtensionContext): void {
+    if (state.suggestionHistory.length === 0) return;
+    if (ctx?.hasUI) lastUIContext = ctx;
+    const entry = state.suggestionHistory.pop()!;
+    state.suggestions = entry.suggestions;
+    state.selectedSuggestionIndex = entry.selectedSuggestionIndex;
+    state.sourceTurnKey = entry.sourceTurnKey;
+    state.generating = false;
+    syncEditor();
+    renderSuggestion(ctx);
+  }
+
   function renderSuggestion(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
     lastUIContext = ctx;
@@ -780,17 +871,48 @@ export default function oracleExtension(pi: ExtensionAPI): void {
 
     syncEditor();
     const colors = createUiColors(ctx.ui.theme);
-    const nextSuggestion = getNextSuggestion();
-    const widgetLines = nextSuggestion
-      ? [
-          `${colors.meta(`Oracle next [${nextSuggestion.index + 1}/${state.suggestions.length}]:`)} ${colors.primary(nextSuggestion.text)}`,
-          colors.meta("Alt+Up/Down to cycle · Tab/Right to insert · Esc to dismiss"),
-        ]
-      : [
-          `${colors.meta(`Oracle [${state.selectedSuggestionIndex + 1}/${state.suggestions.length}]:`)} ${colors.primary(selectedSuggestion)}`,
-          colors.meta("Tab/Right to insert · Esc to dismiss"),
-        ];
-    ctx.ui.setWidget(WIDGET_ID, widgetLines);
+
+    if (state.miniMode) {
+      // Mini mode — one-liner with keybindings
+      const count = state.suggestions.length;
+      const index = state.selectedSuggestionIndex + 1;
+      const help = count > 1 ? "Alt+↑↓: Cycle" : "";
+      const insert = "Tab/→: Insert";
+      const undo = state.suggestionHistory.length > 0 ? "Alt+O: Undo" : "";
+      const prefix = count > 1 ? `[${index}/${count}]` : "";
+      const parts = [prefix, help, insert, undo].filter(Boolean);
+      const widgetLines = [
+        `${colors.primary(`Oracle ${parts.join(" · ")}`)}`,
+      ];
+      ctx.ui.setWidget(WIDGET_ID, widgetLines);
+    } else {
+      // Full mode — show all suggestions as a list
+      const suggestionLines: string[] = [];
+      for (let i = 0; i < state.suggestions.length; i++) {
+        const text = state.suggestions[i];
+        if (!text) continue;
+        const isSelected = i === state.selectedSuggestionIndex;
+        const prefix = isSelected ? colors.primary("→ ") : "  ";
+        const label = isSelected ? colors.primary(text) : colors.meta(text);
+        suggestionLines.push(`${prefix}${label}`);
+      }
+
+      const helpText = state.suggestions.length > 1
+        ? "Alt+↑↓ cycle · Tab/→ insert"
+        : "Tab/→ insert";
+
+      const historyText = state.suggestionHistory.length > 0
+        ? ` · Alt+O undo (${state.suggestionHistory.length})`
+        : "";
+
+      const widgetLines = [
+        colors.primary("Oracle:"),
+        ...suggestionLines,
+        colors.meta(helpText + historyText),
+      ];
+      ctx.ui.setWidget(WIDGET_ID, widgetLines);
+    }
+
     if (fancyFooterActive) {
       ctx.ui.setStatus(STATUS_ID, undefined);
       void refreshFancyFooter(pi);
@@ -830,6 +952,10 @@ export default function oracleExtension(pi: ExtensionAPI): void {
   }
 
   pi.on("agent_end", async (event, ctx) => {
+    if (!ctx.cwd) {
+      clearSuggestion(ctx);
+      return;
+    }
     const suppressReason = shouldSuppressGeneration(ctx);
     if (suppressReason) {
       clearSuggestion(ctx);
@@ -844,7 +970,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
     }
 
     const turnKey = buildTurnKey(messages);
-    const input = buildSuggestionInput(messages, ctx.cwd);
+    const input = buildSuggestionInput(messages, ctx.cwd ?? process.cwd());
     if (!input) {
       clearSuggestion(ctx);
       return;
@@ -903,6 +1029,17 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         clearSuggestion(ctx, { preserveDiagnostics: true });
         return;
       }
+      // Save previous suggestions to history before overwriting
+      if (state.suggestions.length > 0) {
+        state.suggestionHistory.push({
+          suggestions: [...state.suggestions],
+          selectedSuggestionIndex: state.selectedSuggestionIndex,
+          sourceTurnKey: state.sourceTurnKey,
+        });
+        if (state.suggestionHistory.length > 10) {
+          state.suggestionHistory.shift();
+        }
+      }
       state.suggestions = result.suggestions;
       state.selectedSuggestionIndex = 0;
       state.sourceTurnKey = turnKey;
@@ -924,6 +1061,10 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       state.lastError = error instanceof Error ? error.message : String(error);
       state.lastGenerationStatus = "error";
       if (ctx.hasUI) {
+        if (state.debug) {
+          // eslint-disable-next-line no-console
+          console.error("Oracle failed:", error);
+        }
         ctx.ui.notify(`Oracle failed: ${state.lastError}`, "warning");
       }
     }
@@ -982,6 +1123,7 @@ export default function oracleExtension(pi: ExtensionAPI): void {
             `Resolved model: ${state.lastResolvedModel ?? "none"}`,
             `Model resolution: ${state.lastModelResolutionReason ?? "none"}`,
             `Debug: ${state.debug ? "on" : "off"}`,
+            `Mini mode: ${state.miniMode ? "on" : "off"}`, 
             `Suggestions: ${state.suggestions.length > 0 ? state.suggestions.join(" | ") : "none"}`,
             `Selected suggestion: ${getSelectedSuggestion() ?? "none"}`,
             `Generating: ${state.generating ? "yes" : "no"}`,
@@ -1081,6 +1223,16 @@ export default function oracleExtension(pi: ExtensionAPI): void {
         return;
       }
 
+      if (sub === "undo") {
+        undoSuggestionDismissal(ctx);
+        if (state.suggestions.length > 0) {
+          ctx.ui.notify(`Oracle: restored suggestion "${getSelectedSuggestion()}" from history`, "info");
+        } else {
+          ctx.ui.notify("Oracle: no dismissed suggestions to restore", "info");
+        }
+        return;
+      }
+
       if (sub === "debug on") {
         state.debug = true;
         ctx.ui.notify("Oracle debug enabled", "info");
@@ -1090,6 +1242,30 @@ export default function oracleExtension(pi: ExtensionAPI): void {
       if (sub === "debug off") {
         state.debug = false;
         ctx.ui.notify("Oracle debug disabled", "info");
+        return;
+      }
+
+      if (sub === "mini") {
+        state.miniMode = !state.miniMode;
+        syncEditor();
+        renderSuggestion(ctx);
+        ctx.ui.notify(`Oracle mini mode ${state.miniMode ? "on" : "off"}`, "info");
+        return;
+      }
+
+      if (sub === "mini on") {
+        state.miniMode = true;
+        syncEditor();
+        renderSuggestion(ctx);
+        ctx.ui.notify("Oracle mini mode on", "info");
+        return;
+      }
+
+      if (sub === "mini off") {
+        state.miniMode = false;
+        syncEditor();
+        renderSuggestion(ctx);
+        ctx.ui.notify("Oracle mini mode off", "info");
         return;
       }
 
