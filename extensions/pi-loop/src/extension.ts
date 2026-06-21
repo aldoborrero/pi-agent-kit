@@ -118,11 +118,6 @@ export default function cronLoopExtension(pi: ExtensionAPI) {
 	}
 
 	function updateStatus(): void {
-			if (latestCtx?.hasUI) {
-				latestCtx.ui.setStatus("loop", undefined);
-			}
-			return;
-		}
 		if (!latestCtx?.hasUI) return;
 		if (store.size() === 0) {
 			latestCtx.ui.setStatus("loop", undefined);

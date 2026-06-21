@@ -86,11 +86,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	function updateStatus(ctx: ExtensionContext): void {
-			if (ctx.hasUI) {
-				ctx.ui.setStatus("notify", undefined);
-			}
-			return;
-		}
 		if (!ctx.hasUI) return;
 		// Only show when off — on is the expected state
 		const colors = createUiColors(ctx.ui.theme);

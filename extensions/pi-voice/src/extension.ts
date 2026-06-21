@@ -170,11 +170,6 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
-			if (ctx.hasUI) {
-				ctx.ui.setStatus("voice", undefined);
-			}
-			return;
-		}
 		if (!ctx.hasUI) return;
 		const colors = createUiColors(ctx.ui.theme);
 
@@ -207,15 +202,13 @@ export default function voiceExtension(pi: ExtensionAPI) {
 
 	function showError(ctx: ExtensionContext, msg: string): void {
 		if (!ctx.hasUI) return;
-			const colors = createUiColors(ctx.ui.theme);
-			ctx.ui.setStatus("voice", colors.danger("●") + " " + msg);
-			setTimeout(() => {
-				if (state === "idle") {
-					ctx.ui.setStatus("voice", undefined);
-				}
-			}, 3000);
-		} else {
-		}
+		const colors = createUiColors(ctx.ui.theme);
+		ctx.ui.setStatus("voice", colors.danger("●") + " " + msg);
+		setTimeout(() => {
+			if (state === "idle") {
+				ctx.ui.setStatus("voice", undefined);
+			}
+		}, 3000);
 		ctx.ui.notify(msg, "error");
 	}
 

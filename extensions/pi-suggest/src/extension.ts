@@ -689,7 +689,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     if (!state.enabled || !selectedSuggestion) {
       ctx.ui.setWidget(WIDGET_ID, undefined);
       ctx.ui.setStatus(STATUS_ID, undefined);
-      }
       return;
     }
 
@@ -732,11 +731,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       ctx.ui.setWidget(WIDGET_ID, widgetLines);
     }
 
-      ctx.ui.setStatus(STATUS_ID, undefined);
-      return;
-    }
     ctx.ui.setStatus(STATUS_ID, colors.primary("suggest:on"));
-  }
 
   pi.on("session_start", async (_event, ctx) => {
     installEditor(ctx);

@@ -36,9 +36,6 @@ export default function (pi: ExtensionAPI) {
 
   function updateStatus(ctx: ExtensionContext, status: "on" | "blocked" | "error" | "off"): void {
     direnvStatus = status;
-      if (ctx.hasUI) ctx.ui.setStatus("direnv", undefined);
-      return;
-    }
     if (!ctx.hasUI) return;
     if (status === "off" || status === "on") {
       ctx.ui.setStatus("direnv", undefined);

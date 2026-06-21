@@ -228,11 +228,6 @@ export default function (pi: ExtensionAPI) {
 
 	function updateSandboxStatus(ctx: ExtensionContext, status: "on" | "restricted" | "off" | "error"): void {
 		sandboxFooterState = status;
-			if (ctx.hasUI) {
-				ctx.ui.setStatus("sandbox", undefined);
-			}
-			return;
-		}
 		if (!ctx.hasUI) return;
 		if (status === "off") {
 			ctx.ui.setStatus("sandbox", undefined);

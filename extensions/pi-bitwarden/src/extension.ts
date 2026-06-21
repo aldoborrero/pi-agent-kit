@@ -144,12 +144,6 @@ export default function (pi: ExtensionAPI) {
     const available = isAvailable();
     lastStatus = !available ? "missing" : ((currentlyUnlocked ?? isUnlocked()) ? "ready" : "locked");
 
-      if (ctx.hasUI) {
-        ctx.ui.setStatus("bitwarden", undefined);
-      }
-      return;
-    }
-
     if (!ctx.hasUI) return;
     const colors = createUiColors(ctx.ui.theme);
 
