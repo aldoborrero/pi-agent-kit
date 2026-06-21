@@ -67,7 +67,7 @@
       "extensions/pi-questionnaire",
       "extensions/pi-sandbox",
       "extensions/skill-namespaces",
-      "extensions/subagent",
+      "extensions/pi-subagent",
       "extensions/tuicr",
       "extensions/pi-bitwarden",
       "extensions/pi-voice",
