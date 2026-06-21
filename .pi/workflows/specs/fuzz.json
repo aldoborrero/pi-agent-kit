@@ -1,0 +1,7 @@
+{
+  "name": "fuzz",
+  "description": "Targeted single-agent fuzzing workflow that generates differential tests and backlog items.",
+  "mode": "agent",
+  "agent": "build",
+  "prompt": "You are the ADVERSARY for this project.\nFocus area: {{args}}\n\nGenerate 30-50 expressions or inputs targeting this area.\nCompare the project implementation against the relevant reference implementation or expected behavior.\nFor each confirmed mismatch:\n1. Minimize to the smallest reproducer.\n2. Write regression fixtures under tests/adversarial/ (or the closest equivalent for this repo).\n3. File backlog/bug-<slug>.md with the divergence, hypothesis, and next steps.\n4. Append a short summary to tests/adversarial/LOG.md (or create it if missing) so future runs do not retry the same vectors.\n\nStay narrowly focused on the requested area. Prefer reproducible artifacts over prose."
+}

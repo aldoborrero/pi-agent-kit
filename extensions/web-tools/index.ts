@@ -1,5 +1,5 @@
-import { complete, type Message } from "@mariozechner/pi-ai";
-import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { complete, type Message } from "@earendil-works/pi-ai";
+import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";

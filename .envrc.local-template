@@ -20,11 +20,12 @@
 # export VOICE_MODE=paste        # paste | send
 
 # ---------------------------------------------------------------------------
-# Web search (enable one or both)
+# Web search (enable one or more)
 # ---------------------------------------------------------------------------
 
 # export BRAVE_API_KEY=
 # export EXA_API_KEY=
+# export SEARXNG_API_BASE=https://searx.orbiit.xyz
 
 # ---------------------------------------------------------------------------
 # Oracle suggestion model (optional — defaults to current session model)

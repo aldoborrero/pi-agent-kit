@@ -84,14 +84,6 @@ TypeScript extensions for [pi-coding-agent](https://github.com/badlogic/pi-mono)
 | [`brave-search`](extensions/brave-search/README.md) | Backend-specific Brave search integration used by higher-level web tooling |
 | [`jina`](extensions/jina/README.md) | Backend-specific webpage-to-markdown fetcher used by higher-level web tooling |
 
-### Model Providers
-
-| Extension | Description |
-|-----------|-------------|
-| [`openrouter-provider`](extensions/openrouter-provider/README.md) | Kimi K2.5, Gemini, Grok, Devstral, ByteDance — one API key for all |
-| [`groq-provider`](extensions/groq-provider/README.md) | GPT-OSS 120B/20B, Qwen3, Llama 4 Scout — ultra-fast LPU inference |
-| [`together-provider`](extensions/together-provider/README.md) | Llama, DeepSeek, Qwen, Kimi, GLM, Mistral — 25+ open-source models |
-
 ### Environment & Integration
 
 | Extension | Description |

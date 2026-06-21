@@ -1,0 +1,5 @@
+{
+  "oracle": {
+    "model": "groq/openai/gpt-oss-20b"
+  }
+}

@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { parseFrontmatter } from "@mariozechner/pi-coding-agent";
+import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -123,18 +123,5 @@ export function formatAgentList(agents: AgentConfig[], maxItems: number): { text
 	return {
 		text: listed.map((a) => `${a.name} (${a.source}): ${a.description}`).join("; "),
 		remaining,
-	};
-}
-
-// Extension factory function
-import type { PiExtension, PiContext } from "@mariozechner/pi-coding-agent";
-
-export default function createExtension(): PiExtension {
-	return {
-		name: "agents",
-		version: "1.0.0",
-		async init(pi: PiContext) {
-			// Agent discovery is handled via exports, no runtime init needed
-		},
 	};
 }
