@@ -75,7 +75,7 @@
       "extensions/pi-context",
       "extensions/pi-walkie",
       "extensions/pi-suggest",
-      "extensions/workflows"
+      "extensions/pi-workflows"
     ]
   }
 }

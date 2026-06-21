@@ -1,0 +1,30 @@
+{
+  "name": "@aldoborrero/pi-workflows",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Workflow engine for autonomous repo workflows",
+  "scripts": {
+    "test": "bun test"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "src"
+  ],
+  "pi": {
+    "extensions": [
+      "src/extension.ts"
+    ]
+  },
+  "dependencies": {
+    "acorn": "^8.16.0",
+    "gray-matter": "^4.0.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
