@@ -72,7 +72,7 @@
       "extensions/pi-bitwarden",
       "extensions/pi-voice",
       "extensions/pi-codex",
-      "extensions/context",
+      "extensions/pi-context",
       "extensions/walkie",
       "extensions/pi-suggest",
       "extensions/workflows"
