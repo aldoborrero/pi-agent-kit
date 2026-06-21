@@ -20,7 +20,7 @@
     "acorn": "^8.16.0",
     "codex-plugin-cc": "github:openai/codex-plugin-cc",
     "gray-matter": "^4.0.3",
-    "@aldoborrero/pi-common": "file:packages/pi-common",
+    "@aldoborrero/pi-common": "file:extensions/pi-common",
     "pi-lsp-extension": "github:samfoy/pi-lsp-extension",
     "pi-mcp-adapter": "github:nicobailon/pi-mcp-adapter"
   },

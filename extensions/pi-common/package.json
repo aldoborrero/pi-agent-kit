@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "Shared utilities and helpers for Pi agent extensions",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "src/extension.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": "./src/extension.ts",
     "./ui-colors": "./src/ui-colors.ts"
   },
   "peerDependencies": {
