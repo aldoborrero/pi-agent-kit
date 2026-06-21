@@ -54,14 +54,12 @@
       "extensions/footer",
       "extensions/git-checkpoint",
       "extensions/github-search",
-      "extensions/handoff",
       "extensions/inline-bash",
       "extensions/jina",
       "extensions/loop",
       "extensions/until",
       "extensions/notify",
       "extensions/permission-gate",
-      "extensions/plan-mode",
       "extensions/questionnaire",
       "extensions/sandbox",
       "extensions/skill-namespaces",
@@ -72,7 +70,7 @@
       "extensions/codex",
       "extensions/context",
       "extensions/walkie",
-      "extensions/suggest",
+      "extensions/pi-suggest",
       "extensions/workflows"
     ]
   }
