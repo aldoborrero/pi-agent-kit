@@ -1,4 +1,3 @@
-/// <reference path="./node-shim.d.ts" />
 
 /**
  * Codex Extension — use OpenAI Codex from pi to review code or delegate tasks.
@@ -21,7 +20,7 @@
 
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // Resolve the codex-plugin-cc package location robustly via require.resolve,
 // which handles hoisting regardless of where node_modules actually lives.
