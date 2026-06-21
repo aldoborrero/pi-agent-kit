@@ -37,7 +37,7 @@ import { SettingsManager, type ExtensionAPI, type ExtensionContext, getAgentDir 
 import { createUiColors } from "@aldoborrero/pi-common";
 import * as tg from "./telegram.js";
 import { MessageQueue } from "./queue.js";
-import { createProvider, detectProvider } from "../voice/providers.js";
+import { createProvider, detectProvider } from "../../pi-voice/src/providers.js";
 import {
   DRAFT_HEARTBEAT_INTERVAL_MS,
   type AgentStats,

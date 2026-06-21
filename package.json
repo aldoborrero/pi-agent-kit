@@ -73,7 +73,7 @@
       "extensions/pi-voice",
       "extensions/pi-codex",
       "extensions/pi-context",
-      "extensions/walkie",
+      "extensions/pi-walkie",
       "extensions/pi-suggest",
       "extensions/workflows"
     ]
