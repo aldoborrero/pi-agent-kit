@@ -62,7 +62,7 @@
       "extensions/jina",
       "extensions/pi-loop",
       "extensions/pi-until",
-      "extensions/notify",
+      "extensions/pi-notify",
       "extensions/permission-gate",
       "extensions/questionnaire",
       "extensions/pi-sandbox",
