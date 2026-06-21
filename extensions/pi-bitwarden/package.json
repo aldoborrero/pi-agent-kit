@@ -1,11 +1,25 @@
 {
-  "name": "pi-agent-kit-bitwarden",
+  "name": "@aldoborrero/pi-bitwarden",
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "src"
+  ],
   "pi": {
     "extensions": [
-      "./bitwarden.ts"
+      "src/extension.ts"
     ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   }
 }
