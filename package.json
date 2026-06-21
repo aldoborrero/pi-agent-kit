@@ -47,7 +47,7 @@
     "extensions": [
       "extensions/ast-grep",
       "extensions/brave-search",
-      "extensions/btw",
+      "extensions/pi-btw",
       "extensions/diff",
       "extensions/direnv",
       "extensions/exa-search",
