@@ -1,0 +1,19 @@
+{
+  "name": "@aldoborrero/pi-common",
+  "version": "1.0.0",
+  "description": "Shared utilities and helpers for Pi agent extensions",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ui-colors": "./src/ui-colors.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "author": "aldoborrero",
+  "license": "MIT"
+}

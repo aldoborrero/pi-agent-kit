@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { DynamicBorder, SettingsManager, getAgentDir, getSettingsListTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createUiColors } from "../_shared/ui-colors.js";
+import { createUiColors } from "@aldoborrero/pi-common";
 import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 import { createProvider, detectProvider, type ProviderName, type STTProvider } from "./providers.js";
 import { DaemonRecorder, type Recorder, SpawnRecorder } from "./recorder.js";

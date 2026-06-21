@@ -15,7 +15,7 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Container, fuzzyFilter, Input, Spacer, Text } from "@earendil-works/pi-tui";
-import { createUiColors } from "../../_shared/ui-colors.js";
+import { createUiColors } from "@aldoborrero/pi-common";
 import { SuggestEditor } from "./editor";
 
 const DEFAULT_SUGGESTION_MODEL = "current";

@@ -5,8 +5,8 @@
  * Multiple questions: tab bar navigation between questions
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { createUiColors } from "../_shared/ui-colors.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createUiColors } from "@aldoborrero/pi-common";
 import {
   Editor,
   type EditorTheme,
@@ -14,7 +14,7 @@ import {
   matchesKey,
   Text,
   truncateToWidth,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 
 // Types

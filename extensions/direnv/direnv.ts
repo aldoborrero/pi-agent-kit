@@ -21,7 +21,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createUiColors } from "../_shared/ui-colors.js";
+import { createUiColors } from "@aldoborrero/pi-common";
 
 /** Debounce before reloading after a file-system event (ms). */
 const RELOAD_DEBOUNCE_MS = 300;

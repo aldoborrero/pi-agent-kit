@@ -19,7 +19,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
-import { createUiColors } from "../_shared/ui-colors.js";
+import { createUiColors } from "@aldoborrero/pi-common";
 
 // ---------------------------------------------------------------------------
 // Notification helpers

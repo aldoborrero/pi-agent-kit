@@ -12,9 +12,9 @@
 import {
   type ExtensionAPI,
   getMarkdownTheme,
-} from "@mariozechner/pi-coding-agent";
-import { createUiColors } from "../_shared/ui-colors.js";
-import { Container, Markdown, Text } from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-coding-agent";
+import { createUiColors } from "@aldoborrero/pi-common";
+import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import * as fs from "node:fs";
 import * as os from "node:os";

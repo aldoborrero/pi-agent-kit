@@ -46,7 +46,7 @@ import { join } from "node:path";
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type BashOperations, createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { createUiColors } from "../_shared/ui-colors.js";
+import { createUiColors } from "@aldoborrero/pi-common";
 
 interface SandboxConfig extends SandboxRuntimeConfig {
 	enabled?: boolean;

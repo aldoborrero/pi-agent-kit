@@ -24,7 +24,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createUiColors } from "../_shared/ui-colors.js";
+import { createUiColors } from "@aldoborrero/pi-common";
 import { Type } from "@sinclair/typebox";
 
 const MASKED = "********";

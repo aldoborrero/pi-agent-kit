@@ -33,8 +33,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { SettingsManager, type ExtensionAPI, type ExtensionContext, getAgentDir } from "@mariozechner/pi-coding-agent";
-import { createUiColors } from "../_shared/ui-colors.js";
+import { SettingsManager, type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { createUiColors } from "@aldoborrero/pi-common";
 import * as tg from "./telegram.js";
 import { MessageQueue } from "./queue.js";
 import { createProvider, detectProvider } from "../voice/providers.js";

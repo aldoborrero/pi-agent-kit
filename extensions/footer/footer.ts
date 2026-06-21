@@ -3,14 +3,14 @@
  * URL: https://github.com/Mic92/dotfiles/blob/main/home/.pi/agent/extensions/custom-footer.ts
  */
 
-import type { AssistantMessage } from "@mariozechner/pi-ai";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import {
   createUiColors,
   DEFAULT_ERROR_PERCENT,
   DEFAULT_WARNING_PERCENT,
-} from "../_shared/ui-colors.js";
+} from "@aldoborrero/pi-common";
 
 const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
 const MIN_LEFT_SPACE = 12;

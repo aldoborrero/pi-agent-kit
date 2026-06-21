@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { watch, type FSWatcher } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import { createUiColors } from "../_shared/ui-colors.js";
+import { createUiColors } from "@aldoborrero/pi-common";
 import { FILE_RELOAD_DEBOUNCE_MS } from "./constants";
 import { registerLoopCommand } from "./loop-command";
 import { getLoopTasksFilePath, loadStoredTasks, saveStoredTasks } from "./persistence";
