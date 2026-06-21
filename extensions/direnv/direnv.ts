@@ -20,21 +20,18 @@ import { exec } from "node:child_process";
 import type {
   ExtensionAPI,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
-import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
+} from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "../_shared/ui-colors.js";
 
 /** Debounce before reloading after a file-system event (ms). */
 const RELOAD_DEBOUNCE_MS = 300;
 
 export default function (pi: ExtensionAPI) {
-  let fancyFooterActive = false;
   let direnvStatus: "on" | "blocked" | "error" | "off" = "off";
   let watchers: FSWatcher[] = [];
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
   let latestCtx: ExtensionContext | null = null;
 
-  const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
     id: "pi-agent-kit.direnv",
     label: "Direnv",
     description: "Shows whether direnv loaded successfully or is blocked for the current session.",
@@ -48,15 +45,12 @@ export default function (pi: ExtensionAPI) {
     visible: () => direnvStatus === "blocked" || direnvStatus === "error",
     renderText: () => `direnv:${direnvStatus}`,
   })).then((active) => {
-    fancyFooterActive = active;
     return active;
   });
 
   function updateStatus(ctx: ExtensionContext, status: "on" | "blocked" | "error" | "off"): void {
     direnvStatus = status;
-    if (fancyFooterActive) {
       if (ctx.hasUI) ctx.ui.setStatus("direnv", undefined);
-      void refreshFancyFooter(pi);
       return;
     }
     if (!ctx.hasUI) return;
@@ -145,7 +139,6 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("session_start", async (_event, ctx) => {
-    await fancyFooterReady;
     latestCtx = ctx;
     loadDirenv(ctx.cwd, ctx);
     startWatchers(ctx.cwd);

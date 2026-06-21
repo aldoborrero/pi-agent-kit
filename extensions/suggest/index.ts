@@ -15,7 +15,6 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Container, fuzzyFilter, Input, Spacer, Text } from "@earendil-works/pi-tui";
-import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
 import { createUiColors } from "../_shared/ui-colors.js";
 import { SuggestEditor } from "./editor";
 
@@ -594,7 +593,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     generationId: 0,
     miniMode: false,
   };
-  let fancyFooterActive = false;
 
   // Active generation session — aborted when a new generation starts or suggest is cleared.
   let activeSession: { abort(): Promise<void>; dispose(): void } | null = null;
@@ -610,7 +608,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     }
   }
 
-  const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
     id: "pi-agent-kit.suggest",
     label: "Suggest",
     description: "Shows whether suggest suggestions are enabled for the current session.",
@@ -624,7 +621,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     visible: () => state.generating || state.suggestions.length > 0,
     renderText: () => state.generating ? "suggest:gen" : "suggest:ready",
   })).then((active) => {
-    fancyFooterActive = active;
     return active;
   });
 
@@ -697,8 +693,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       ctx.ui.setWidget(WIDGET_ID, undefined);
       ctx.ui.setStatus(STATUS_ID, undefined);
     }
-    if (fancyFooterActive) {
-      void refreshFancyFooter(pi);
     }
   }
 
@@ -710,8 +704,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     if (!state.enabled || !selectedSuggestion) {
       ctx.ui.setWidget(WIDGET_ID, undefined);
       ctx.ui.setStatus(STATUS_ID, undefined);
-      if (fancyFooterActive) {
-        void refreshFancyFooter(pi);
       }
       return;
     }
@@ -755,23 +747,19 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       ctx.ui.setWidget(WIDGET_ID, widgetLines);
     }
 
-    if (fancyFooterActive) {
       ctx.ui.setStatus(STATUS_ID, undefined);
-      void refreshFancyFooter(pi);
       return;
     }
     ctx.ui.setStatus(STATUS_ID, colors.primary("suggest:on"));
   }
 
   pi.on("session_start", async (_event, ctx) => {
-    await fancyFooterReady;
     installEditor(ctx);
     clearSuggestion(ctx);
     renderSuggestion(ctx);
   });
 
   pi.on("session_switch", async (_event, ctx) => {
-    await fancyFooterReady;
     installEditor(ctx);
     clearSuggestion(ctx);
     renderSuggestion(ctx);
@@ -822,7 +810,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     await abortActiveSession();
 
     state.generating = true;
-    if (fancyFooterActive) void refreshFancyFooter(pi);
     state.lastError = null;
     state.lastRawSuggestion = null;
     state.lastFilterReason = null;

@@ -24,7 +24,6 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
 import { createUiColors } from "../_shared/ui-colors.js";
 import { Type } from "@sinclair/typebox";
 
@@ -121,11 +120,9 @@ function isUnlocked(): boolean {
 // ── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  let fancyFooterActive = false;
   let lastStatus: "ready" | "locked" | "missing" = isAvailable()
     ? (isUnlocked() ? "ready" : "locked")
     : "missing";
-  const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
     id: "pi-agent-kit.bitwarden",
     label: "Bitwarden",
     description: "Shows whether the Bitwarden rbw vault is ready, locked, or missing.",
@@ -139,7 +136,6 @@ export default function (pi: ExtensionAPI) {
     visible: () => lastStatus === "locked" || lastStatus === "missing",
     renderText: () => `bw:${lastStatus}`,
   })).then((active) => {
-    fancyFooterActive = active;
     return active;
   });
 
@@ -164,11 +160,9 @@ export default function (pi: ExtensionAPI) {
     const available = isAvailable();
     lastStatus = !available ? "missing" : ((currentlyUnlocked ?? isUnlocked()) ? "ready" : "locked");
 
-    if (fancyFooterActive) {
       if (ctx.hasUI) {
         ctx.ui.setStatus("bitwarden", undefined);
       }
-      void refreshFancyFooter(pi);
       return;
     }
 
@@ -496,7 +490,6 @@ The vault must be unlocked first (use /bw unlock command).`,
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
-    await fancyFooterReady;
     updateStatus(ctx);
   });
 

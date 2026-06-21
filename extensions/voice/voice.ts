@@ -20,10 +20,9 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { DynamicBorder, SettingsManager, getAgentDir, getSettingsListTheme, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
+import { DynamicBorder, SettingsManager, getAgentDir, getSettingsListTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "../_shared/ui-colors.js";
-import { Container, type SettingItem, SettingsList, Text } from "@mariozechner/pi-tui";
+import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 import { createProvider, detectProvider, type ProviderName, type STTProvider } from "./providers.js";
 import { DaemonRecorder, type Recorder, SpawnRecorder } from "./recorder.js";
 
@@ -124,8 +123,6 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	let recorder: Recorder | null = null;
 	let levelInterval: ReturnType<typeof setInterval> | null = null;
 	let hints = "";
-	let fancyFooterActive = false;
-	const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
 		id: "pi-agent-kit.voice",
 		label: "Voice",
 		description: "Shows voice input provider and active recording/transcription state.",
@@ -139,7 +136,6 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		visible: () => state === "recording" || state === "transcribing",
 		renderText: () => state === "recording" ? "voice:rec" : "voice:transcribing",
 	})).then((active) => {
-		fancyFooterActive = active;
 		return active;
 	});
 
@@ -189,11 +185,9 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
-		if (fancyFooterActive) {
 			if (ctx.hasUI) {
 				ctx.ui.setStatus("voice", undefined);
 			}
-			void refreshFancyFooter(pi);
 			return;
 		}
 		if (!ctx.hasUI) return;
@@ -228,7 +222,6 @@ export default function voiceExtension(pi: ExtensionAPI) {
 
 	function showError(ctx: ExtensionContext, msg: string): void {
 		if (!ctx.hasUI) return;
-		if (!fancyFooterActive) {
 			const colors = createUiColors(ctx.ui.theme);
 			ctx.ui.setStatus("voice", colors.danger("●") + " " + msg);
 			setTimeout(() => {
@@ -237,7 +230,6 @@ export default function voiceExtension(pi: ExtensionAPI) {
 				}
 			}, 3000);
 		} else {
-			void refreshFancyFooter(pi);
 		}
 		ctx.ui.notify(msg, "error");
 	}
@@ -554,7 +546,6 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	// ─── Events ─────────────────────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
-		await fancyFooterReady;
 		// Load persisted config (takes priority over env vars)
 		const saved = await loadSavedConfig(ctx.cwd);
 		if (saved.lang) config.lang = saved.lang;

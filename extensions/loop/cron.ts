@@ -1,8 +1,7 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { watch, type FSWatcher } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { basename, dirname } from "node:path";
-import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
 import { createUiColors } from "../_shared/ui-colors.js";
 import { FILE_RELOAD_DEBOUNCE_MS } from "./constants";
 import { registerLoopCommand } from "./loop-command";
@@ -21,8 +20,6 @@ export default function cronLoopExtension(pi: ExtensionAPI) {
 	let persistChain: Promise<void> = Promise.resolve();
 	let fileWatcher: FSWatcher | null = null;
 	let reloadTimer: ReturnType<typeof setTimeout> | null = null;
-	let fancyFooterActive = false;
-	const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
 		id: "pi-agent-kit.loop",
 		label: "Loop",
 		description: "Scheduled loop tasks for the current session.",
@@ -36,7 +33,6 @@ export default function cronLoopExtension(pi: ExtensionAPI) {
 		visible: () => store.size() > 0,
 		renderText: () => `loop:${store.size()}${scheduler.isSchedulerOwner() ? "" : " passive"}`,
 	})).then((active) => {
-		fancyFooterActive = active;
 		if (active && latestCtx?.hasUI) {
 			latestCtx.ui.setStatus("loop", undefined);
 		}
@@ -140,11 +136,9 @@ export default function cronLoopExtension(pi: ExtensionAPI) {
 	}
 
 	function updateStatus(): void {
-		if (fancyFooterActive) {
 			if (latestCtx?.hasUI) {
 				latestCtx.ui.setStatus("loop", undefined);
 			}
-			void refreshFancyFooter(pi);
 			return;
 		}
 		if (!latestCtx?.hasUI) return;
@@ -230,7 +224,6 @@ export default function cronLoopExtension(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		setContext(ctx);
-		await fancyFooterReady;
 		store.replaceAll(await loadStoredTasks());
 		updateStatus();
 		await persistChain;

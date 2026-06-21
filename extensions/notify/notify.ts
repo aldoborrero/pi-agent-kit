@@ -17,9 +17,8 @@
  * - /notify               toggles notifications on/off during a session
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
-import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
 import { createUiColors } from "../_shared/ui-colors.js";
 
 // ---------------------------------------------------------------------------
@@ -78,8 +77,6 @@ export default function (pi: ExtensionAPI) {
 	let agentStartTime: number | null = null;
 	let turnCount = 0;
 	let filesChanged = 0;
-	let fancyFooterActive = false;
-	const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
 		id: "pi-agent-kit.notify",
 		label: "Notify",
 		description: "Shows when desktop notifications are disabled for the current session.",
@@ -93,7 +90,6 @@ export default function (pi: ExtensionAPI) {
 		visible: () => !enabled,
 		renderText: () => "notify:off",
 	})).then((active) => {
-		fancyFooterActive = active;
 		return active;
 	});
 
@@ -105,11 +101,9 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	function updateStatus(ctx: ExtensionContext): void {
-		if (fancyFooterActive) {
 			if (ctx.hasUI) {
 				ctx.ui.setStatus("notify", undefined);
 			}
-			void refreshFancyFooter(pi);
 			return;
 		}
 		if (!ctx.hasUI) return;
@@ -124,7 +118,6 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
-		await fancyFooterReady;
 		enabled = pi.getFlag("notify") !== false;
 		updateStatus(ctx);
 	});

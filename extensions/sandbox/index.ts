@@ -44,9 +44,8 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { type BashOperations, createBashTool, getAgentDir } from "@mariozechner/pi-coding-agent";
-import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
+import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type BashOperations, createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "../_shared/ui-colors.js";
 
 interface SandboxConfig extends SandboxRuntimeConfig {
@@ -226,9 +225,7 @@ export default function (pi: ExtensionAPI) {
 	let cachedBash = createBashTool(projectCwd);
 	let sandboxEnabled = false;
 	let sandboxInitialized = false;
-	let fancyFooterActive = false;
 	let sandboxFooterState: "on" | "restricted" | "off" | "error" = "off";
-	const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
 		id: "pi-agent-kit.sandbox",
 		label: "Sandbox",
 		description: "Shows whether sandboxed bash execution is enabled for the current session.",
@@ -244,17 +241,14 @@ export default function (pi: ExtensionAPI) {
 		visible: () => sandboxFooterState !== "off",
 		renderText: () => `sandbox:${sandboxFooterState}`,
 	})).then((active) => {
-		fancyFooterActive = active;
 		return active;
 	});
 
 	function updateSandboxStatus(ctx: ExtensionContext, status: "on" | "restricted" | "off" | "error"): void {
 		sandboxFooterState = status;
-		if (fancyFooterActive) {
 			if (ctx.hasUI) {
 				ctx.ui.setStatus("sandbox", undefined);
 			}
-			void refreshFancyFooter(pi);
 			return;
 		}
 		if (!ctx.hasUI) return;
@@ -292,7 +286,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		await fancyFooterReady;
 		projectCwd = ctx.cwd;
 		cachedBash = createBashTool(projectCwd);
 		const noSandbox = pi.getFlag("no-sandbox") as boolean;
