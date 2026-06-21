@@ -23,7 +23,7 @@ import { execSync, spawn } from "node:child_process";
 import type {
   ExtensionAPI,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import { registerFancyFooterWidget, refreshFancyFooter } from "../_shared/fancy-footer.js";
 import { createUiColors } from "../_shared/ui-colors.js";
 import { Type } from "@sinclair/typebox";

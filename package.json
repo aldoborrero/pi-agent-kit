@@ -67,7 +67,7 @@
       "extensions/skill-namespaces",
       "extensions/subagent",
       "extensions/tuicr",
-      "extensions/bitwarden",
+      "extensions/pi-bitwarden",
       "extensions/voice",
       "extensions/codex",
       "extensions/context",
