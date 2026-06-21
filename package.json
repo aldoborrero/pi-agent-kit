@@ -65,7 +65,7 @@
       "extensions/notify",
       "extensions/permission-gate",
       "extensions/questionnaire",
-      "extensions/sandbox",
+      "extensions/pi-sandbox",
       "extensions/skill-namespaces",
       "extensions/subagent",
       "extensions/tuicr",

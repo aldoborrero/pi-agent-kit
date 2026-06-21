@@ -1,4 +1,3 @@
-/// <reference path="./node-shim.d.ts" />
 
 /**
  * Sandbox Extension - OS-level sandboxing for bash commands

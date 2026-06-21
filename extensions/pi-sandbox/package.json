@@ -1,0 +1,28 @@
+{
+  "name": "@aldoborrero/pi-sandbox",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "src"
+  ],
+  "pi": {
+    "extensions": [
+      "src/extension.ts"
+    ]
+  },
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "^0.0.26"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
