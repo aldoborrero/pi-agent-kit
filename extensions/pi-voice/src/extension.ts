@@ -123,21 +123,6 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	let recorder: Recorder | null = null;
 	let levelInterval: ReturnType<typeof setInterval> | null = null;
 	let hints = "";
-		id: "pi-agent-kit.voice",
-		label: "Voice",
-		description: "Shows voice input provider and active recording/transcription state.",
-		defaults: {
-			row: 1,
-			position: 17,
-			align: "right",
-			fill: "none",
-		},
-		textColor: state === "recording" ? "success" : "warning",
-		visible: () => state === "recording" || state === "transcribing",
-		renderText: () => state === "recording" ? "voice:rec" : "voice:transcribing",
-	})).then((active) => {
-		return active;
-	});
 
 	// Read shortcut synchronously — registerShortcut runs at load time
 	const initConfig = loadSavedConfigSync(process.cwd());

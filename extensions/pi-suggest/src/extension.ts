@@ -607,21 +607,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     }
   }
 
-    id: "pi-agent-kit.suggest",
-    label: "Suggest",
-    description: "Shows whether suggest suggestions are enabled for the current session.",
-    defaults: {
-      row: 1,
-      position: 12,
-      align: "right",
-      fill: "none",
-    },
-    textColor: "accent",
-    visible: () => state.generating || state.suggestions.length > 0,
-    renderText: () => state.generating ? "suggest:gen" : "suggest:ready",
-  })).then((active) => {
-    return active;
-  });
+
 
   function getSelectedSuggestion(): string | null {
     if (state.suggestions.length === 0) return null;

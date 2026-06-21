@@ -20,24 +20,6 @@ export default function cronLoopExtension(pi: ExtensionAPI) {
 	let persistChain: Promise<void> = Promise.resolve();
 	let fileWatcher: FSWatcher | null = null;
 	let reloadTimer: ReturnType<typeof setTimeout> | null = null;
-		id: "pi-agent-kit.loop",
-		label: "Loop",
-		description: "Scheduled loop tasks for the current session.",
-		defaults: {
-			row: 1,
-			position: 10,
-			align: "right",
-			fill: "none",
-		},
-		textColor: scheduler.isSchedulerOwner() ? "success" : "muted",
-		visible: () => store.size() > 0,
-		renderText: () => `loop:${store.size()}${scheduler.isSchedulerOwner() ? "" : " passive"}`,
-	})).then((active) => {
-		if (active && latestCtx?.hasUI) {
-			latestCtx.ui.setStatus("loop", undefined);
-		}
-		return active;
-	});
 
 	function persistTasks(): void {
 		persistChain = persistChain

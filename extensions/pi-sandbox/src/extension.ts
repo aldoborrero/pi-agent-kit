@@ -225,23 +225,6 @@ export default function (pi: ExtensionAPI) {
 	let sandboxEnabled = false;
 	let sandboxInitialized = false;
 	let sandboxFooterState: "on" | "restricted" | "off" | "error" = "off";
-		id: "pi-agent-kit.sandbox",
-		label: "Sandbox",
-		description: "Shows whether sandboxed bash execution is enabled for the current session.",
-		defaults: {
-			row: 1,
-			position: 13,
-			align: "right",
-			fill: "none",
-		},
-		textColor: sandboxFooterState === "on"
-			? "accent"
-			: (sandboxFooterState === "restricted" ? "warning" : "error"),
-		visible: () => sandboxFooterState !== "off",
-		renderText: () => `sandbox:${sandboxFooterState}`,
-	})).then((active) => {
-		return active;
-	});
 
 	function updateSandboxStatus(ctx: ExtensionContext, status: "on" | "restricted" | "off" | "error"): void {
 		sandboxFooterState = status;

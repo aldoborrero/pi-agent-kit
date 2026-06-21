@@ -77,21 +77,6 @@ export default function (pi: ExtensionAPI) {
 	let agentStartTime: number | null = null;
 	let turnCount = 0;
 	let filesChanged = 0;
-		id: "pi-agent-kit.notify",
-		label: "Notify",
-		description: "Shows when desktop notifications are disabled for the current session.",
-		defaults: {
-			row: 1,
-			position: 16,
-			align: "right",
-			fill: "none",
-		},
-		textColor: "warning",
-		visible: () => !enabled,
-		renderText: () => "notify:off",
-	})).then((active) => {
-		return active;
-	});
 
 	// CLI flag: --no-notify disables notifications at startup.
 	pi.registerFlag("notify", {

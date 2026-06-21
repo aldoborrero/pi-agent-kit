@@ -32,21 +32,7 @@ export default function (pi: ExtensionAPI) {
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
   let latestCtx: ExtensionContext | null = null;
 
-    id: "pi-agent-kit.direnv",
-    label: "Direnv",
-    description: "Shows whether direnv loaded successfully or is blocked for the current session.",
-    defaults: {
-      row: 1,
-      position: 15,
-      align: "right",
-      fill: "none",
-    },
-    textColor: direnvStatus === "error" ? "error" : "warning",
-    visible: () => direnvStatus === "blocked" || direnvStatus === "error",
-    renderText: () => `direnv:${direnvStatus}`,
-  })).then((active) => {
-    return active;
-  });
+
 
   function updateStatus(ctx: ExtensionContext, status: "on" | "blocked" | "error" | "off"): void {
     direnvStatus = status;

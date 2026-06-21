@@ -122,21 +122,6 @@ export default function (pi: ExtensionAPI) {
   let lastStatus: "ready" | "locked" | "missing" = isAvailable()
     ? (isUnlocked() ? "ready" : "locked")
     : "missing";
-    id: "pi-agent-kit.bitwarden",
-    label: "Bitwarden",
-    description: "Shows whether the Bitwarden rbw vault is ready, locked, or missing.",
-    defaults: {
-      row: 1,
-      position: 11,
-      align: "right",
-      fill: "none",
-    },
-    textColor: lastStatus === "missing" ? "error" : "warning",
-    visible: () => lastStatus === "locked" || lastStatus === "missing",
-    renderText: () => `bw:${lastStatus}`,
-  })).then((active) => {
-    return active;
-  });
 
   function okResult(text: string) {
     return {
