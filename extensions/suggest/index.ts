@@ -73,6 +73,10 @@ interface SuggestState {
   lastAssistantContentKind: string | null;
   lastAssistantContentPreview: string | null;
   generationId: number;
+}
+
+function filterSuggestion(raw: string | null): { suggestion: string | null; reason: string | null } {
+  if (typeof raw !== "string" || !raw) return { suggestion: null, reason: "model returned empty output" };
   const suggestion = raw.trim();
   if (!suggestion) return { suggestion: null, reason: "model returned blank output" };
 
