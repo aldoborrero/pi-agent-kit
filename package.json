@@ -60,7 +60,7 @@
       "extensions/github-search",
       "extensions/inline-bash",
       "extensions/jina",
-      "extensions/loop",
+      "extensions/pi-loop",
       "extensions/pi-until",
       "extensions/notify",
       "extensions/permission-gate",

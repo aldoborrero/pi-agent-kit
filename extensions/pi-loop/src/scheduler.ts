@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CHECK_INTERVAL_MS, FALLBACK_FIRE_DELAY_MS, IN_FLIGHT_GUARD_MS, LOCK_PROBE_INTERVAL_MS } from "./constants";
 import { releaseLoopSchedulerLock, tryAcquireLoopSchedulerLock } from "./loop-lock";
 import type { RuntimeCronTask } from "./types";

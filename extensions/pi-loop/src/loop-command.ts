@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { parseLoopInput } from "./interval-parser";
 import { MAX_TASKS, RECURRING_EXPIRY_DAYS, type TaskStore } from "./task-store";
 import type { LoopScheduler } from "./scheduler";
