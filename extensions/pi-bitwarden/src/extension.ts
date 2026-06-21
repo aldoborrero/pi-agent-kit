@@ -1,4 +1,3 @@
-/// <reference path="./node-shim.d.ts" />
 
 /**
  * Bitwarden Extension (via rbw)

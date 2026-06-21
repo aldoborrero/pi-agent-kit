@@ -1,4 +1,3 @@
-/// <reference path="../node-shim.d.ts" />
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Model, TextContent } from "@earendil-works/pi-ai";
