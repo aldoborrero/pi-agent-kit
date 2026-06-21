@@ -70,7 +70,7 @@
       "extensions/subagent",
       "extensions/tuicr",
       "extensions/pi-bitwarden",
-      "extensions/voice",
+      "extensions/pi-voice",
       "extensions/pi-codex",
       "extensions/context",
       "extensions/walkie",
