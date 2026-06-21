@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Reusable skills and extensions for Pi coding agent",
   "type": "module",
+  "workspaces": [
+    "extensions/*"
+  ],
   "keywords": [
     "pi-package",
     "ai-agent",
