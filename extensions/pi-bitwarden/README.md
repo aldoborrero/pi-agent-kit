@@ -4,12 +4,12 @@ Secure access to Bitwarden vault items through [rbw](https://github.com/doy/rbw)
 
 ## Why rbw over bw?
 
-| | rbw | bw (official) |
-|---|---|---|
-| **Session management** | Background agent (like ssh-agent) | Manual `BW_SESSION` env var |
-| **Speed** | Milliseconds (in-memory cache) | 1-5 seconds per call |
-| **Token exposure** | None - keys stay in rbw-agent | Token in env, visible to child processes |
-| **Programmatic use** | Simple: `rbw get name` | Complex: unlock + token + `--session` |
+|                        | rbw                               | bw (official)                            |
+| ---------------------- | --------------------------------- | ---------------------------------------- |
+| **Session management** | Background agent (like ssh-agent) | Manual `BW_SESSION` env var              |
+| **Speed**              | Milliseconds (in-memory cache)    | 1-5 seconds per call                     |
+| **Token exposure**     | None - keys stay in rbw-agent     | Token in env, visible to child processes |
+| **Programmatic use**   | Simple: `rbw get name`            | Complex: unlock + token + `--session`    |
 
 ## Requirements
 
@@ -44,6 +44,7 @@ Secure access to Bitwarden vault items through [rbw](https://github.com/doy/rbw)
 Retrieve a specific field from a vault item.
 
 Parameters:
+
 - `name` (string, required): Item name or URI
 - `folder` (string, optional): Folder name to disambiguate duplicate names
 - `field` (string, optional): Field to retrieve. Default: `username`
@@ -58,6 +59,7 @@ Parameters:
 List vault items with optional filtering.
 
 Parameters:
+
 - `search` (string, optional): Case-insensitive substring filter
 - `folder` (string, optional): Filter by folder name
 
@@ -66,5 +68,5 @@ Returns item names and usernames only - no sensitive data.
 ## Usage
 
 ```bash
-pi -e ./extensions/bitwarden/bitwarden.ts
+pi -e ./extensions/pi-bitwarden/src/extension.ts
 ```
