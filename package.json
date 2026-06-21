@@ -1,8 +1,9 @@
 {
-  "name": "@aldoborrero/pi-agent-kit",
+  "name": "pi-agent-kit-workspace",
   "version": "1.0.0",
   "description": "Reusable skills and extensions for Pi coding agent",
   "type": "module",
+  "private": true,
   "workspaces": [
     "extensions/*"
   ],
@@ -23,16 +24,15 @@
     "acorn": "^8.16.0",
     "codex-plugin-cc": "github:openai/codex-plugin-cc",
     "gray-matter": "^4.0.3",
-    "@aldoborrero/pi-common": "file:extensions/pi-common",
     "pi-lsp-extension": "github:samfoy/pi-lsp-extension",
     "pi-mcp-adapter": "github:nicobailon/pi-mcp-adapter"
   },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "*",
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "@sinclair/typebox": "*"
+    "@earendil-works/pi-agent-core": "latest",
+    "@earendil-works/pi-ai": "latest",
+    "@earendil-works/pi-coding-agent": "latest",
+    "@earendil-works/pi-tui": "latest",
+    "@sinclair/typebox": "latest"
   },
   "pi": {
     "themes": [
@@ -48,29 +48,7 @@
       "prompts"
     ],
     "extensions": [
-      "extensions/pi-ast-grep",
-      "extensions/pi-bitwarden",
-      "extensions/pi-btw",
-      "extensions/pi-codex",
-      "extensions/pi-context",
-      "extensions/pi-diff",
-      "extensions/pi-direnv",
-      "extensions/pi-exit",
-      "extensions/pi-footer",
-      "extensions/pi-git-checkpoint",
-      "extensions/pi-github-search",
-      "extensions/pi-inline-bash",
-      "extensions/pi-loop",
-      "extensions/pi-notify",
-      "extensions/pi-questionnaire",
-      "extensions/pi-sandbox",
-      "extensions/pi-subagent",
-      "extensions/pi-suggest",
-      "extensions/pi-tuicr",
-      "extensions/pi-until",
-      "extensions/pi-voice",
-      "extensions/pi-walkie",
-      "extensions/pi-workflows"
+      "extensions/pi-agent-kit"
     ]
   }
 }
