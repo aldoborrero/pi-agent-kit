@@ -54,6 +54,7 @@
     "@aldoborrero/pi-tuicr": "*",
     "@aldoborrero/pi-until": "*",
     "@aldoborrero/pi-voice": "*",
+    "@aldoborrero/pi-themes": "*",
     "@aldoborrero/pi-walkie": "*",
     "@aldoborrero/pi-web-tools": "*",
     "@aldoborrero/pi-workflows": "*"
