@@ -1,0 +1,21 @@
+{
+  "name": "@aldoborrero/pi-themes",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Theme pack — catppuccin-mocha and lavender themes",
+  "type": "module",
+  "files": [
+    "themes"
+  ],
+  "pi": {
+    "themes": [
+      "themes"
+    ]
+  },
+  "author": "aldoborrero",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aldoborrero/pi-agent-kit.git"
+  }
+}
