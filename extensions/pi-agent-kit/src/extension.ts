@@ -6,6 +6,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { once } from "./once.ts";
 import registerAstGrep from "../../pi-ast-grep/src/extension.ts";
 import registerBitwarden from "../../pi-bitwarden/src/extension.ts";
 import registerBtw from "../../pi-btw/src/extension.ts";
@@ -13,7 +14,7 @@ import registerCodex from "../../pi-codex/src/extension.ts";
 import registerContext from "../../pi-context/src/extension.ts";
 import registerDiff from "../../pi-diff/src/extension.ts";
 import registerDirenv from "../../pi-direnv/src/extension.ts";
-import registerExit from "../../pi-exit/src/extension.ts";
+import registerAlias from "../../pi-alias/src/extension.ts";
 import registerFooter from "../../pi-footer/src/extension.ts";
 import registerGitCheckpoint from "../../pi-git-checkpoint/src/extension.ts";
 import registerGithubSearch from "../../pi-github-search/src/extension.ts";
@@ -28,8 +29,8 @@ import registerTuicr from "../../pi-tuicr/src/extension.ts";
 import registerUntil from "../../pi-until/src/extension.ts";
 import registerVoice from "../../pi-voice/src/extension.ts";
 import registerWalkie from "../../pi-walkie/src/extension.ts";
-import registerWebTools from "../../pi-web-tools/src/extension.ts";
 import registerWorkflows from "../../pi-workflows/src/extension.ts";
+import registerSkills from "../../pi-skills/src/extension.ts";
 
 type Factory = (pi: never) => void;
 
@@ -41,7 +42,7 @@ const MEMBERS: Factory[] = [
   registerContext,
   registerDiff,
   registerDirenv,
-  registerExit,
+  registerAlias,
   registerFooter,
   registerGitCheckpoint,
   registerGithubSearch,
@@ -56,12 +57,15 @@ const MEMBERS: Factory[] = [
   registerUntil,
   registerVoice,
   registerWalkie,
-  registerWebTools,
   registerWorkflows,
+  registerSkills,
 ];
 
 export default function (pi: ExtensionAPI): void {
-  for (const register of MEMBERS) {
-    (register as (pi: ExtensionAPI) => void)(pi);
-  }
+  once(pi, "pi-agent-kit", () => {
+    for (const register of MEMBERS) {
+      (register as (pi: ExtensionAPI) => void)(pi);
+    }
+  });
 }
+
