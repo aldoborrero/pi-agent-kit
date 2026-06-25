@@ -1,0 +1,525 @@
+/**
+ * Codex-style apply_patch engine.
+ *
+ * Accepts payloads bracketed by `*** Begin Patch` / `*** End Patch` and
+ * supports three operations: Add File, Delete File, Update File.
+ *
+ * Design — this is a recursive-descent parser over a line cursor. Each
+ * grammar rule owns a small function; there is no shared mutable index
+ * bookkeeping or nested-loop state machine. Hunks are stored as raw
+ * `oldBlock`/`newBlock` strings so the applier can run `indexOf` directly
+ * instead of reconstructing line arrays on each apply.
+ *
+ * Compatibility notes (vs the original Codex apply_patch format):
+ * - Hunks MUST start with a "@@" header. Missing headers are rejected.
+ * - Only exact-match hunk anchoring — no 4-pass fuzzy `seekSequence`.
+ * - `*** End of File` sentinel hunks are not recognized.
+ * - `*** Move to:` is rejected.
+ */
+
+import { isAbsolute, resolve as resolvePath } from "node:path";
+
+import { generateDiffString } from "./diff.ts";
+import type {
+  Hunk,
+  OnFileChange,
+  PatchOpResult,
+  PatchOperation,
+  Workspace,
+} from "./types.ts";
+
+// ---------------------------------------------------------------------------
+// Line cursor
+// ---------------------------------------------------------------------------
+
+class LineCursor {
+  private pos = 0;
+  constructor(private readonly lines: readonly string[]) {}
+
+  peek(): string | undefined {
+    return this.lines[this.pos];
+  }
+
+  next(): string | undefined {
+    return this.lines[this.pos++];
+  }
+
+  hasMore(): boolean {
+    return this.pos < this.lines.length;
+  }
+
+  /** Consume lines while the predicate holds. Returns the number consumed. */
+  skipWhile(pred: (line: string) => boolean): number {
+    let count = 0;
+    while (this.hasMore() && pred(this.peek()!)) {
+      this.pos++;
+      count++;
+    }
+    return count;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Parser
+// ---------------------------------------------------------------------------
+
+const DIRECTIVE_BEGIN = "*** Begin Patch";
+const DIRECTIVE_END = "*** End Patch";
+const DIRECTIVE_ADD = "*** Add File: ";
+const DIRECTIVE_DELETE = "*** Delete File: ";
+const DIRECTIVE_UPDATE = "*** Update File: ";
+const DIRECTIVE_MOVE = "*** Move to: ";
+
+const isBlank = (line: string): boolean => line.trim() === "";
+const isDirective = (line: string): boolean =>
+  line.trimEnd().startsWith("*** ");
+
+export function parsePatch(patchText: string): PatchOperation[] {
+  const normalized = patchText.replace(/\r\n/g, "\n").trim();
+  if (normalized.length === 0) {
+    throw new Error("Patch is empty or invalid");
+  }
+
+  const lines = normalized.split("\n");
+  if (lines[0]!.trim() !== DIRECTIVE_BEGIN) {
+    throw new Error(`The first line of the patch must be '${DIRECTIVE_BEGIN}'`);
+  }
+  if (lines[lines.length - 1]!.trim() !== DIRECTIVE_END) {
+    throw new Error(`The last line of the patch must be '${DIRECTIVE_END}'`);
+  }
+
+  // Cursor over the interior (strip Begin and End sentinels).
+  const cursor = new LineCursor(lines.slice(1, -1));
+  const operations: PatchOperation[] = [];
+
+  while (cursor.hasMore()) {
+    cursor.skipWhile(isBlank);
+    if (!cursor.hasMore()) break;
+
+    const header = cursor.next()!.trimEnd();
+
+    if (header.startsWith(DIRECTIVE_ADD)) {
+      operations.push(parseAddFile(header.slice(DIRECTIVE_ADD.length), cursor));
+      continue;
+    }
+    if (header.startsWith(DIRECTIVE_DELETE)) {
+      operations.push({
+        kind: "delete",
+        path: header.slice(DIRECTIVE_DELETE.length),
+      });
+      continue;
+    }
+    if (header.startsWith(DIRECTIVE_UPDATE)) {
+      operations.push(
+        parseUpdateFile(header.slice(DIRECTIVE_UPDATE.length), cursor),
+      );
+      continue;
+    }
+
+    throw new Error(
+      `'${header}' is not a valid hunk header. Valid headers: '${DIRECTIVE_ADD.trim()}', '${DIRECTIVE_DELETE.trim()}', '${DIRECTIVE_UPDATE.trim()}'`,
+    );
+  }
+
+  return operations;
+}
+
+function parseAddFile(path: string, cursor: LineCursor): PatchOperation {
+  const bodyLines: string[] = [];
+
+  while (cursor.hasMore()) {
+    const line = cursor.peek()!;
+    if (isDirective(line)) break;
+    cursor.next();
+    if (!line.startsWith("+")) {
+      throw new Error(
+        `Invalid add-file line '${line}'. Add-file lines must start with '+'`,
+      );
+    }
+    bodyLines.push(line.slice(1));
+  }
+
+  const contents = bodyLines.length > 0 ? `${bodyLines.join("\n")}\n` : "";
+  return { kind: "add", path, contents };
+}
+
+function parseUpdateFile(path: string, cursor: LineCursor): PatchOperation {
+  // Move-to is explicitly rejected — we only support in-place updates.
+  const lookahead = cursor.peek();
+  if (lookahead?.trimEnd().startsWith(DIRECTIVE_MOVE)) {
+    throw new Error("Patch move operations (*** Move to:) are not supported.");
+  }
+
+  const hunks: Hunk[] = [];
+
+  while (cursor.hasMore()) {
+    cursor.skipWhile(isBlank);
+    if (!cursor.hasMore()) break;
+
+    const line = cursor.peek()!;
+    if (isDirective(line)) break;
+
+    hunks.push(parseHunk(path, cursor));
+  }
+
+  if (hunks.length === 0) {
+    throw new Error(`Update file hunk for path '${path}' is empty`);
+  }
+
+  return { kind: "update", path, hunks };
+}
+
+function parseHunk(path: string, cursor: LineCursor): Hunk {
+  const header = cursor.next();
+  if (header === undefined) {
+    throw new Error(`Expected @@ hunk header in '${path}', got end of patch`);
+  }
+
+  const trimmed = header.trimEnd();
+  let contextPrefix: string | undefined;
+  if (trimmed === "@@") {
+    contextPrefix = undefined;
+  } else if (trimmed.startsWith("@@ ")) {
+    contextPrefix = trimmed.slice(3);
+  } else {
+    throw new Error(
+      `Expected update hunk to start with @@ context marker, got: '${header}'`,
+    );
+  }
+
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
+
+  while (cursor.hasMore()) {
+    const raw = cursor.peek()!;
+    const trimEnd = raw.trimEnd();
+
+    // Any directive or next hunk header ends the current hunk.
+    if (trimEnd.startsWith("@@") || isDirective(raw)) break;
+
+    cursor.next();
+
+    if (raw.length === 0) {
+      // Blank line inside a hunk is treated as an unchanged empty line.
+      oldLines.push("");
+      newLines.push("");
+      continue;
+    }
+
+    const marker = raw[0];
+    const body = raw.slice(1);
+
+    if (marker === " ") {
+      oldLines.push(body);
+      newLines.push(body);
+    } else if (marker === "-") {
+      oldLines.push(body);
+    } else if (marker === "+") {
+      newLines.push(body);
+    } else {
+      throw new Error(
+        `Unexpected line found in update hunk for '${path}': '${raw}'. Every line should start with ' ', '+', or '-'.`,
+      );
+    }
+  }
+
+  if (oldLines.length === 0 && newLines.length === 0) {
+    throw new Error(`Update hunk for '${path}' does not contain any lines`);
+  }
+
+  return {
+    contextPrefix,
+    oldBlock: oldLines.join("\n"),
+    newBlock: newLines.join("\n"),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Applier
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply a list of hunks to a file's content. Operates directly on the raw
+ * string via `indexOf` — no intermediate line-array reconstruction. A search
+ * cursor advances after each hunk so repeated `oldBlock` strings are matched
+ * in top-to-bottom order.
+ */
+/**
+ * Find `needle` in `haystack` starting from `offset`. Tries exact match
+ * first; if that fails, retries with per-line trimEnd on both sides.
+ * Returns `{ pos, matchLength }` referencing the *original* haystack, or
+ * undefined when no match is found in either pass.
+ */
+function findBlock(
+  haystack: string,
+  needle: string,
+  offset: number,
+): { pos: number; matchLength: number } | undefined {
+  const exact = haystack.indexOf(needle, offset);
+  if (exact !== -1) return { pos: exact, matchLength: needle.length };
+
+  // trimEnd pass: strip trailing whitespace per line on both sides.
+  const trimLine = (s: string) =>
+    s
+      .split("\n")
+      .map((l) => l.trimEnd())
+      .join("\n");
+
+  const normNeedle = trimLine(needle);
+  const normHaystack = trimLine(haystack);
+  if (normNeedle === needle && normHaystack === haystack) return undefined;
+
+  const normPos = normHaystack.indexOf(normNeedle, offset);
+  if (normPos === -1) return undefined;
+
+  // Map normalised position back to original haystack. Because trimEnd only
+  // removes characters (never adds), character positions can only shift
+  // right. Walk original lines to find the real byte offset for the matched
+  // line index.
+  const normPrefix = normHaystack.slice(0, normPos);
+  const startLineIdx = normPrefix.split("\n").length - 1;
+
+  const origLines = haystack.split("\n");
+  let realPos = 0;
+  for (let i = 0; i < startLineIdx; i++) realPos += origLines[i]!.length + 1;
+
+  // Compute the real length: count original bytes for the matched lines.
+  const matchedLineCount = normNeedle.split("\n").length;
+  let realEnd = realPos;
+  for (let i = startLineIdx; i < startLineIdx + matchedLineCount; i++) {
+    realEnd += origLines[i]!.length + 1;
+  }
+  realEnd--; // exclude trailing \n after last line
+
+  // If the needle ended with \n, include it.
+  if (needle.endsWith("\n") && realEnd + 1 <= haystack.length) realEnd++;
+
+  return { pos: realPos, matchLength: realEnd - realPos };
+}
+
+function applyHunks(filePath: string, content: string, hunks: Hunk[]): string {
+  let result = content;
+  let cursor = 0;
+
+  for (const hunk of hunks) {
+    let searchFrom = cursor;
+
+    if (hunk.contextPrefix !== undefined) {
+      const ctxMatch = findBlock(result, hunk.contextPrefix, searchFrom);
+      if (ctxMatch === undefined) {
+        throw new Error(
+          `Failed to find context '${hunk.contextPrefix}' in ${filePath}`,
+        );
+      }
+      searchFrom = ctxMatch.pos + ctxMatch.matchLength;
+    }
+
+    if (hunk.oldBlock === "") {
+      // Pure insertion: append newBlock at the anchor (or end-of-file).
+      const insertAt =
+        hunk.contextPrefix !== undefined ? searchFrom : result.length;
+      const needsNewline = insertAt > 0 && result[insertAt - 1] !== "\n";
+      const prefix = needsNewline ? "\n" : "";
+      result =
+        result.slice(0, insertAt) +
+        prefix +
+        hunk.newBlock +
+        result.slice(insertAt);
+      cursor = insertAt + prefix.length + hunk.newBlock.length;
+      continue;
+    }
+
+    const match = findBlock(result, hunk.oldBlock, searchFrom);
+    if (match === undefined) {
+      throw new Error(
+        `Failed to find expected lines in ${filePath}:\n${hunk.oldBlock}`,
+      );
+    }
+
+    result =
+      result.slice(0, match.pos) +
+      hunk.newBlock +
+      result.slice(match.pos + match.matchLength);
+    cursor = match.pos + hunk.newBlock.length;
+  }
+
+  // Preserve the "file ends with newline" invariant upstream relies on.
+  if (!result.endsWith("\n")) {
+    result = `${result}\n`;
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Orchestration
+// ---------------------------------------------------------------------------
+
+function resolvePatchPath(cwd: string, filePath: string): string {
+  const trimmed = filePath.trim();
+  if (!trimmed) {
+    throw new Error("Patch path cannot be empty");
+  }
+  return isAbsolute(trimmed) ? resolvePath(trimmed) : resolvePath(cwd, trimmed);
+}
+
+function ensureTrailingNewline(content: string): string {
+  return content.endsWith("\n") ? content : `${content}\n`;
+}
+
+export async function applyPatchOperations(
+  ops: PatchOperation[],
+  workspace: Workspace,
+  cwd: string,
+  signal?: AbortSignal,
+  options?: {
+    collectDiff?: boolean;
+    checkAccess?: boolean;
+    onFileChange?: OnFileChange;
+  },
+): Promise<PatchOpResult[]> {
+  const results: PatchOpResult[] = [];
+  const collectDiff = options?.collectDiff ?? false;
+  const checkAccess = options?.checkAccess ?? false;
+  const { onFileChange } = options ?? {};
+
+  // Write-access preflight: verify all targets are accessible before mutating
+  // anything, so we never partially apply a patch that can't complete.
+  if (checkAccess) {
+    for (const op of ops) {
+      const abs = resolvePatchPath(cwd, op.path);
+      if (op.kind === "add") {
+        await workspace.checkCreatable(abs);
+      } else {
+        // update / delete: the file must exist and be writable.
+        await workspace.checkWriteAccess(abs);
+      }
+    }
+  }
+
+  // Snapshot stack for atomic rollback. Each entry records the absolute path
+  // and the content BEFORE the operation (null = file did not exist, i.e. an
+  // Add op created it).
+  const snapshots: Array<{ abs: string; prior: string | null }> = [];
+
+  try {
+    for (const op of ops) {
+      if (signal?.aborted) {
+        throw new Error("Operation aborted");
+      }
+
+      switch (op.kind) {
+        case "add": {
+          const abs = resolvePatchPath(cwd, op.path);
+
+          // Guard: refuse to overwrite an existing file through Add File.
+          if (await workspace.exists(abs)) {
+            throw new Error(`Cannot add ${op.path}: file already exists`);
+          }
+
+          snapshots.push({ abs, prior: null });
+
+          const newText = ensureTrailingNewline(op.contents);
+          await workspace.writeText(abs, newText);
+          results.push(
+            buildOpResult(
+              op.path,
+              abs,
+              `Added file ${op.path}.`,
+              "",
+              newText,
+              collectDiff,
+              onFileChange,
+            ),
+          );
+          break;
+        }
+
+        case "delete": {
+          const abs = resolvePatchPath(cwd, op.path);
+          if (!(await workspace.exists(abs))) {
+            throw new Error(`Failed to delete ${op.path}: file does not exist`);
+          }
+          // Always read before deleting so we can restore on rollback.
+          const prior = await workspace.readText(abs);
+          const oldText = collectDiff ? prior : "";
+          snapshots.push({ abs, prior });
+          await workspace.deleteFile(abs);
+          results.push(
+            buildOpResult(
+              op.path,
+              abs,
+              `Deleted file ${op.path}.`,
+              oldText,
+              "",
+              collectDiff,
+              onFileChange,
+            ),
+          );
+          break;
+        }
+
+        case "update": {
+          const abs = resolvePatchPath(cwd, op.path);
+          const sourceText = await workspace.readText(abs);
+          // Compute and validate the updated content BEFORE pushing the
+          // snapshot — if applyHunks throws, the file has not been touched yet.
+          const updated = applyHunks(op.path, sourceText, op.hunks);
+          snapshots.push({ abs, prior: sourceText });
+          await workspace.writeText(abs, updated);
+          results.push(
+            buildOpResult(
+              op.path,
+              abs,
+              `Updated ${op.path}.`,
+              sourceText,
+              updated,
+              collectDiff,
+              onFileChange,
+            ),
+          );
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    // Best-effort rollback in reverse operation order.
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+      const { abs, prior } = snapshots[i]!;
+      if (prior === null) {
+        // File was created by an Add op — remove it.
+        await workspace.deleteFile(abs).catch(() => {});
+      } else {
+        // File was mutated (update) or deleted — restore its prior content.
+        await workspace.writeText(abs, prior).catch(() => {});
+      }
+    }
+    throw err;
+  }
+
+  return results;
+}
+
+function buildOpResult(
+  path: string,
+  abs: string,
+  message: string,
+  oldText: string,
+  newText: string,
+  collectDiff: boolean,
+  onFileChange?: OnFileChange,
+): PatchOpResult {
+  const result: PatchOpResult = { path, message };
+  if (collectDiff) {
+    const { diff, firstChangedLine } = generateDiffString(oldText, newText);
+    result.diff = diff;
+    result.firstChangedLine = firstChangedLine;
+    onFileChange?.({
+      path: abs,
+      oldContent: oldText,
+      newContent: newText,
+      firstChangedLine,
+    });
+  }
+  return result;
+}

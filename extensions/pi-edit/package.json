@@ -1,0 +1,31 @@
+{
+  "name": "@aldoborrero/pi-edit",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pi extension — replaces edit with batch edits, Codex-style patches, encoding-safe atomic application, and rich split-diff rendering",
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "src"
+  ],
+  "pi": {
+    "extensions": [
+      "src/extension.ts"
+    ]
+  },
+  "dependencies": {
+    "@xynogen/pix-pretty": "*",
+    "diff": "^8.0.4"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  }
+}
