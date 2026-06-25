@@ -36,17 +36,15 @@
     "@sinclair/typebox": "latest"
   },
   "pi": {
-    "themes": [
-      "extensions/pi-themes/themes"
-    ],
-    "skills": [
-      "skills"
-    ],
     "agents": [
       "agents"
     ],
     "prompts": [
       "prompts"
+    ],
+    "themes": [
+      "extensions/pi-themes/themes",
+      "node_modules/@xynogen/pix-themes/themes"
     ],
     "extensions": [
       "extensions/pi-agent-kit"
