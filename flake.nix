@@ -1,5 +1,5 @@
 {
-  description = "skillz";
+  description = "pi-agent-kit";
 
   nixConfig = {
     extra-substituters = [
@@ -32,7 +32,6 @@
       inherit inputs;
       nixpkgs.config.allowUnfree = true;
       systems = [
-        "aarch64-linux"
         "x86_64-linux"
       ];
     };
