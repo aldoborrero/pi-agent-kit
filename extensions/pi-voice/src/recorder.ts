@@ -135,6 +135,18 @@ export class SpawnRecorder implements Recorder {
 			stdio: ["ignore", "pipe", "ignore"],
 		});
 
+		this.process.on("error", () => {
+			this.killProcess();
+			onAutoStop();
+		});
+
+		this.process.on("exit", (code) => {
+			if (code !== 0 && code !== null) {
+				this.killProcess();
+				onAutoStop();
+			}
+		});
+
 		this.process.stdout?.on("data", (chunk: Buffer) => {
 			this.chunks.push(chunk);
 			this.latestRms = computeRms(chunk);
@@ -175,10 +187,11 @@ export class SpawnRecorder implements Recorder {
 
 	cancel(): void {
 		if (this.process) {
-			this.process.kill("SIGTERM");
+			const proc = this.process;
+			proc.kill("SIGTERM");
 			setTimeout(() => {
-				if (this.process && !this.process.killed) {
-					this.process.kill("SIGKILL");
+				if (!proc.killed) {
+					proc.kill("SIGKILL");
 				}
 			}, 500);
 			this.process = null;

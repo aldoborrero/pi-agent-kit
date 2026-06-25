@@ -1,6 +1,23 @@
 # voice
 
-Toggle-to-record speech-to-text input for pi-coding-agent. Multiple STT backends, configurable language, and project context hints for coding vocabulary recognition.
+Walkie-talkie style speech-to-text input for pi-coding-agent. Hold Space to record, release to transcribe. Multiple STT backends, configurable language, and project context hints for coding vocabulary recognition.
+
+## Hold-Space-to-Record
+
+The custom voice editor uses a **walkie-talkie** interaction model:
+
+1. **Tap Space** — inserts a normal space character (no delay, normal typing).
+2. **Hold Space** (past ~350ms) — recording starts, and a `● REC` indicator appears in the editor border.
+3. **Recording stays active while Space is held down.**
+4. **Release Space** — stops recording and transcribes.
+5. The transcribed text is inserted at the cursor position for review.
+6. **Escape** during recording — cancels without transcribing.
+
+The space character is **not** inserted on press — it's only inserted on release if the hold threshold was not reached. This avoids the insert-then-delete pattern that can lose a space if recording fails to start. A quick tap feels like normal typing.
+
+**Typing cooldown:** if the user typed any non-space key within the last 400ms, Space is treated as normal input, not a hold candidate. This prevents accidental recording during fast typing.
+
+**Kitty keyboard protocol required.** Without it, all input passes through untouched so normal typing never breaks — hold-to-talk is simply unavailable.
 
 ## Commands
 
@@ -12,23 +29,9 @@ Toggle-to-record speech-to-text input for pi-coding-agent. Multiple STT backends
 | `/voice provider <auto\|groq\|openai\|daemon>` | Switch STT provider |
 | `/voice lang <code>` | Set transcription language (default: `en`) |
 | `/voice mode <paste\|send>` | Set output mode (`paste` = editor, `send` = auto-submit) |
-| `/voice shortcut <key>` | Change the keyboard shortcut (default: `ctrl+alt+v`) |
 | `/voice status` | Show current configuration |
 
 All subcommands support tab completion — type `/voice ` and press Tab.
-
-## Keyboard Shortcut
-
-`Ctrl+Alt+V` — toggle recording (default, configurable)
-
-To change the shortcut, run `/voice shortcut <key>` then `/reload`:
-
-```
-/voice shortcut ctrl+shift+v
-/reload
-```
-
-Key format: `modifier+key` — e.g. `ctrl+alt+v`, `ctrl+shift+r`, `alt+v`. See [keybindings.md](https://github.com/mariozechner/pi-coding-agent/docs/keybindings.md) for supported keys.
 
 ## STT Providers
 
@@ -60,8 +63,7 @@ Example:
   "voice": {
     "provider": "groq",
     "lang": "en",
-    "mode": "paste",
-    "shortcut": "ctrl+alt+v"
+    "mode": "paste"
   }
 }
 ```
@@ -75,9 +77,6 @@ Persisted config takes priority over env vars.
 | `VOICE_DAEMON_URL` | `http://localhost:8765` | Local whisper daemon URL |
 | `VOICE_LANG` | `en` | Transcription language (env var fallback) |
 | `VOICE_MODE` | `paste` | Output mode (env var fallback) |
-
-The `voice.shortcut` field in `~/.pi/agent/settings.json` persists the configured key. Changes require `/reload` or a pi restart.
-Legacy compatibility is still kept for the old `~/.pi/voice.json` sidecar file.
 
 ## System Dependencies
 
@@ -98,6 +97,10 @@ Not needed when using the daemon provider (daemon handles audio capture).
 
 ## Features
 
+- **Walkie-talkie recording** — hold Space to record, release to transcribe
+- **Deferred space insertion** — space is not inserted on press; only on release if it was a tap, never if it was a hold
+- **Typing cooldown** — Space after recent typing is normal input, not a hold candidate
+- **Kitty-only safety gate** — without Kitty keyboard protocol, all input passes through untouched
 - **Persistent config** — provider, language, and mode saved to `~/.pi/agent/settings.json` under `voice`
 - **Interactive settings** — `/voice config` opens a navigable settings panel
 - **Tab completion** — `/voice [tab]` shows available subcommands

@@ -5,7 +5,7 @@
  * (Groq / OpenAI) or a local daemon, and pastes or sends the result.
  *
  * Usage:
- *   Ctrl+Alt+V  — toggle recording
+ *   Hold Space  — hold to record, release to stop & transcribe
  *   /voice            — toggle recording
  *   /voice config     — open interactive settings panel
  *   /voice cancel     — cancel active recording
@@ -14,25 +14,27 @@
  *   /voice mode <paste|send>
  *   /voice status     — show current configuration
  *
+ * When recording is triggered by holding Space, the transcribed text is
+ * inserted at the cursor position for review.
+ *
  * Config is persisted to ~/.pi/agent/settings.json under the voice key.
  */
 
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { DynamicBorder, SettingsManager, getAgentDir, getSettingsListTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "@aldoborrero/pi-common";
 import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
 import { createProvider, detectProvider, type ProviderName, type STTProvider } from "./providers.js";
 import { DaemonRecorder, type Recorder, SpawnRecorder } from "./recorder.js";
+import { VoiceEditor } from "./voice-editor.js";
+import { once } from "./once.ts";
 
-type State = "idle" | "recording" | "transcribing";
+type State = "idle" | "starting" | "recording" | "transcribing";
 
 const LEVEL_BARS = "▁▃▅▇";
 const LEVEL_METER_INTERVAL_MS = 100;
 const MIN_AUDIO_LENGTH = 16000;
 
-const LEGACY_CONFIG_FILE = join(homedir(), ".pi", "voice.json");
 const VOICE_SETTINGS_KEY = "voice";
 
 const PROVIDER_VALUES = ["auto", "groq", "openai", "daemon"] as const;
@@ -42,13 +44,10 @@ const MODE_VALUES = ["paste", "send"] as const;
 type ProviderSetting = (typeof PROVIDER_VALUES)[number];
 
 interface SavedConfig {
-	provider?: ProviderName;
+	provider?: ProviderName | "auto";
 	lang: string;
 	mode: "paste" | "send";
-	shortcut?: string;
 }
-
-const DEFAULT_SHORTCUT = "ctrl+alt+v";
 
 function getSettingsPath(): string {
 	return join(getAgentDir(), "settings.json");
@@ -63,42 +62,28 @@ function normalizeSavedConfig(raw: unknown): Partial<SavedConfig> {
 	}
 	if (typeof config.lang === "string" && config.lang.trim()) normalized.lang = config.lang.trim();
 	if (config.mode === "paste" || config.mode === "send") normalized.mode = config.mode;
-	if (typeof config.shortcut === "string" && config.shortcut.trim()) normalized.shortcut = config.shortcut.trim();
 	return normalized;
 }
 
-function readLegacySavedConfigSync(): Partial<SavedConfig> {
-	try {
-		const raw = readFileSync(LEGACY_CONFIG_FILE, "utf8");
-		return normalizeSavedConfig(JSON.parse(raw));
-	} catch {
-		return {};
-	}
-}
-
-function loadSavedConfigSync(cwd: string = process.cwd()): Partial<SavedConfig> {
+async function loadSavedConfig(cwd: string = process.cwd()): Promise<Partial<SavedConfig>> {
 	try {
 		const manager = SettingsManager.create(cwd);
 		const projectSettings = manager.getProjectSettings() as Record<string, unknown>;
 		const globalSettings = manager.getGlobalSettings() as Record<string, unknown>;
 		const projectConfig = normalizeSavedConfig(projectSettings[VOICE_SETTINGS_KEY]);
 		const globalConfig = normalizeSavedConfig(globalSettings[VOICE_SETTINGS_KEY]);
-		return { ...readLegacySavedConfigSync(), ...globalConfig, ...projectConfig };
+		return { ...globalConfig, ...projectConfig };
 	} catch {
-		return readLegacySavedConfigSync();
+		return {};
 	}
 }
 
-async function loadSavedConfig(cwd: string = process.cwd()): Promise<Partial<SavedConfig>> {
-	return loadSavedConfigSync(cwd);
-}
-
-async function persistConfig(cwd: string, lang: string, mode: "paste" | "send", provider: ProviderName | null, shortcut: string): Promise<void> {
+async function persistConfig(cwd: string, lang: string, mode: "paste" | "send", provider: ProviderName | null): Promise<void> {
 	try {
 		const manager = SettingsManager.create(cwd);
 		await manager.reload();
 		const globalSettings = manager.getGlobalSettings() as Record<string, unknown>;
-		const saved: SavedConfig = { lang, mode, shortcut };
+		const saved: SavedConfig = { lang, mode };
 		if (provider) saved.provider = provider;
 		globalSettings[VOICE_SETTINGS_KEY] = saved;
 		const internal = manager as unknown as {
@@ -117,6 +102,7 @@ async function persistConfig(cwd: string, lang: string, mode: "paste" | "send", 
 }
 
 export default function voiceExtension(pi: ExtensionAPI) {
+  once(pi, "pi-voice", () => {
 	let state: State = "idle";
 	let provider: STTProvider | null = null;
 	let providerName: ProviderName | null = null;
@@ -124,20 +110,21 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	let levelInterval: ReturnType<typeof setInterval> | null = null;
 	let hints = "";
 
-	// Read shortcut synchronously — registerShortcut runs at load time
-	const initConfig = loadSavedConfigSync(process.cwd());
-	const activeShortcut = initConfig.shortcut ?? DEFAULT_SHORTCUT;
+	// ─── Voice editor integration ──────────────────────────────────
+	let voiceEditor: VoiceEditor | null = null;
+	let currentCtx: ExtensionContext | null = null;
+	/** Tracks whether recording was triggered by the editor (space-hold). */
+	let editorInitiatedRecording = false;
 
 	const config = {
 		lang: process.env.VOICE_LANG ?? "en",
 		mode: (process.env.VOICE_MODE ?? "paste") as "paste" | "send",
-		shortcut: activeShortcut,
 	};
 
 	// ─── Provider / Recorder init ───────────────────────────────────
 
-	function initProvider(name?: ProviderName): void {
-		if (name) {
+	function initProvider(name?: ProviderName | "auto"): void {
+		if (name && name !== "auto") {
 			provider = createProvider(name);
 			providerName = name;
 		} else {
@@ -181,6 +168,10 @@ export default function voiceExtension(pi: ExtensionAPI) {
 					providerName ? colors.meta(`voice:${providerName}`) : undefined,
 				);
 				break;
+			case "starting":
+			state = "recording";
+			updateStatus(ctx);
+			break;
 			case "recording": {
 				const bars = recorder?.hasLevel()
 					? " " + renderLevel(recorder.getLevel())
@@ -221,13 +212,13 @@ export default function voiceExtension(pi: ExtensionAPI) {
 
 	// ─── Recording lifecycle ────────────────────────────────────────
 
-	function startRecording(ctx: ExtensionContext): void {
+	function startRecording(ctx: ExtensionContext): boolean {
 		if (!provider || !recorder) {
 			showError(ctx, "No STT provider. Set GROQ_API_KEY, OPENAI_API_KEY, or VOICE_DAEMON_URL — or run /voice config.");
-			return;
+			return false;
 		}
 
-		state = "recording";
+		state = "starting";
 		updateStatus(ctx);
 
 		try {
@@ -238,18 +229,26 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		} catch (err) {
 			state = "idle";
 			showError(ctx, `Recording failed: ${err instanceof Error ? err.message : String(err)}`);
-			return;
+			return false;
 		}
+
+		// Recorder started successfully — transition to recording
+		state = "recording";
+		updateStatus(ctx);
 
 		if (recorder.hasLevel()) {
 			levelInterval = setInterval(() => {
 				updateStatus(ctx);
 			}, LEVEL_METER_INTERVAL_MS);
 		}
+		return true;
 	}
 
 	async function stopAndTranscribe(ctx: ExtensionContext): Promise<void> {
-		if (state !== "recording" || !recorder || !provider) return;
+		if ((state !== "recording" && state !== "starting") || !recorder || !provider) return;
+
+		// Sync editor state — recorder may auto-stop without editor knowing
+		voiceEditor?.forceClearRecording();
 
 		clearLevelInterval();
 		state = "transcribing";
@@ -294,10 +293,14 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		}
 
 		state = "idle";
+		editorInitiatedRecording = false;
 		updateStatus(ctx);
 	}
 
 	function cancelRecording(ctx: ExtensionContext): void {
+		// Sync editor state
+		voiceEditor?.forceClearRecording();
+
 		clearLevelInterval();
 		if (recorder) {
 			recorder.cancel();
@@ -309,6 +312,12 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	function outputText(ctx: ExtensionContext, text: string): void {
 		const trimmed = text.trim();
 		if (!trimmed) return;
+
+		// Editor-initiated recording: insert at cursor for review
+		if (editorInitiatedRecording && voiceEditor) {
+			voiceEditor.insertTranscription(trimmed);
+			return;
+		}
 
 		if (config.mode === "send") {
 			pi.sendUserMessage(trimmed);
@@ -326,6 +335,7 @@ export default function voiceExtension(pi: ExtensionAPI) {
 			case "idle":
 				startRecording(ctx);
 				break;
+			case "starting":
 			case "recording":
 				stopAndTranscribe(ctx);
 				break;
@@ -335,22 +345,13 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		}
 	}
 
-	// ─── Keyboard shortcut ──────────────────────────────────────────
-
-	pi.registerShortcut(activeShortcut as Parameters<typeof pi.registerShortcut>[0], {
-		description: "Toggle voice recording",
-		handler: (ctx) => {
-			toggle(ctx);
-		},
-	});
-
 	// ─── Command ────────────────────────────────────────────────────
 
 	pi.registerCommand("voice", {
 		description: "Voice input — toggle recording or configure (config | cancel | status | provider | lang | mode)",
 
 		getArgumentCompletions: (prefix: string) => {
-			const subs = ["config", "cancel", "status", "provider", "lang", "mode", "shortcut"];
+			const subs = ["config", "cancel", "status", "provider", "lang", "mode"];
 			const filtered = subs.filter((s) => s.startsWith(prefix));
 			return filtered.length > 0 ? filtered.map((s) => ({ value: s, label: s })) : null;
 		},
@@ -417,7 +418,7 @@ export default function voiceExtension(pi: ExtensionAPI) {
 									config.mode = newValue as "paste" | "send";
 								}
 								updateStatus(ctx);
-								persistConfig(ctx.cwd, config.lang, config.mode, providerName, config.shortcut).catch(() => {});
+								persistConfig(ctx.cwd, config.lang, config.mode, providerName).catch(() => {});
 							},
 							() => done(undefined),
 						);
@@ -446,12 +447,12 @@ export default function voiceExtension(pi: ExtensionAPI) {
 					if (name === "auto") {
 						initProvider();
 						updateStatus(ctx);
-						await persistConfig(ctx.cwd, config.lang, config.mode, providerName, config.shortcut);
+						await persistConfig(ctx.cwd, config.lang, config.mode, providerName);
 						if (ctx.hasUI) ctx.ui.notify(`Voice provider: auto-detect → ${providerName ?? "none"}`, "info");
 					} else if (name === "groq" || name === "openai" || name === "daemon") {
 						initProvider(name);
 						updateStatus(ctx);
-						await persistConfig(ctx.cwd, config.lang, config.mode, providerName, config.shortcut);
+						await persistConfig(ctx.cwd, config.lang, config.mode, providerName);
 						if (ctx.hasUI) ctx.ui.notify(`Voice provider: ${name}`, "info");
 					} else {
 						if (ctx.hasUI) ctx.ui.notify("Usage: /voice provider <auto|groq|openai|daemon>", "error");
@@ -463,7 +464,7 @@ export default function voiceExtension(pi: ExtensionAPI) {
 					const code = parts[1];
 					if (code) {
 						config.lang = code;
-						await persistConfig(ctx.cwd, config.lang, config.mode, providerName, config.shortcut);
+						await persistConfig(ctx.cwd, config.lang, config.mode, providerName);
 						if (ctx.hasUI) ctx.ui.notify(`Voice language: ${code}`, "info");
 					} else {
 						if (ctx.hasUI) ctx.ui.notify(`Voice language: ${config.lang}`, "info");
@@ -475,22 +476,10 @@ export default function voiceExtension(pi: ExtensionAPI) {
 					const mode = parts[1]?.toLowerCase();
 					if (mode === "paste" || mode === "send") {
 						config.mode = mode;
-						await persistConfig(ctx.cwd, config.lang, config.mode, providerName, config.shortcut);
+						await persistConfig(ctx.cwd, config.lang, config.mode, providerName);
 						if (ctx.hasUI) ctx.ui.notify(`Voice mode: ${mode}`, "info");
 					} else {
 						if (ctx.hasUI) ctx.ui.notify("Usage: /voice mode <paste|send>", "error");
-					}
-					break;
-				}
-
-				case "shortcut": {
-					const key = parts.slice(1).join("+").toLowerCase();
-					if (key) {
-						config.shortcut = key;
-						await persistConfig(ctx.cwd, config.lang, config.mode, providerName, config.shortcut);
-						if (ctx.hasUI) ctx.ui.notify(`Voice shortcut: ${key}\nRun /reload for it to take effect.`, "info");
-					} else {
-						if (ctx.hasUI) ctx.ui.notify(`Voice shortcut: ${config.shortcut}\nUsage: /voice shortcut <key> (e.g. ctrl+alt+v)`, "info");
 					}
 					break;
 				}
@@ -500,7 +489,6 @@ export default function voiceExtension(pi: ExtensionAPI) {
 						`Provider : ${providerName ?? "none (run /voice config)"}`,
 						`Language : ${config.lang}`,
 						`Mode     : ${config.mode}`,
-						`Shortcut : ${config.shortcut} (active: ${activeShortcut})`,
 						`State    : ${state}`,
 						`Recorder : ${recorder?.constructor.name ?? "none"}`,
 						`Config   : ${getSettingsPath()}#${VOICE_SETTINGS_KEY}`,
@@ -524,11 +512,12 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	// ─── Events ─────────────────────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx) => {
+		currentCtx = ctx;
+
 		// Load persisted config (takes priority over env vars)
 		const saved = await loadSavedConfig(ctx.cwd);
 		if (saved.lang) config.lang = saved.lang;
 		if (saved.mode) config.mode = saved.mode;
-		if (saved.shortcut) config.shortcut = saved.shortcut;
 
 		// Build hints from project context
 		try {
@@ -548,6 +537,31 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		// Init provider: prefer persisted choice, fall back to env-var auto-detect
 		initProvider(saved.provider);
 
+		// ── Register the VoiceEditor (hold-Space-to-record) ──────────
+		if (ctx.mode === "tui" && ctx.hasUI) {
+			ctx.ui.setEditorComponent((tui, theme, kb) => {
+				voiceEditor = new VoiceEditor(tui, theme, kb);
+
+				voiceEditor.setCallbacks({
+					onStartRecording: () => {
+						editorInitiatedRecording = true;
+						if (currentCtx) return startRecording(currentCtx);
+						return false;
+					},
+					onStopRecording: () => {
+						if (currentCtx) stopAndTranscribe(currentCtx);
+					},
+					onCancelRecording: () => {
+						editorInitiatedRecording = false;
+						if (currentCtx) cancelRecording(currentCtx);
+						if (currentCtx?.hasUI) currentCtx.ui.notify("Recording cancelled", "info");
+					},
+				});
+
+				return voiceEditor;
+			});
+		}
+
 		// Show provider quietly in footer — no popup
 		updateStatus(ctx);
 	});
@@ -555,5 +569,13 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		if (state === "recording") cancelRecording(ctx);
 		clearLevelInterval();
+
+		// Dispose the voice editor
+		voiceEditor?.dispose?.();
+		voiceEditor = null;
+		currentCtx = null;
+		editorInitiatedRecording = false;
 	});
+
+  });
 }
