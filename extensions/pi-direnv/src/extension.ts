@@ -22,11 +22,13 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "@aldoborrero/pi-common";
+import { once } from "./once.ts";
 
 /** Debounce before reloading after a file-system event (ms). */
 const RELOAD_DEBOUNCE_MS = 300;
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-direnv", () => {
   let direnvStatus: "on" | "blocked" | "error" | "off" = "off";
   let watchers: FSWatcher[] = [];
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -139,5 +141,7 @@ export default function (pi: ExtensionAPI) {
       loadDirenv(ctx.cwd, ctx);
       ctx.ui.notify("direnv reloaded", "info");
     },
+  });
+
   });
 }

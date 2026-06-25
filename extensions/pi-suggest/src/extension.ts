@@ -16,6 +16,7 @@ import {
 import { Container, fuzzyFilter, Input, Spacer, Text } from "@earendil-works/pi-tui";
 import { createUiColors } from "@aldoborrero/pi-common";
 import { SuggestEditor } from "./editor";
+import { once } from "./once.ts";
 
 const DEFAULT_SUGGESTION_MODEL = "current";
 const MODEL_ENV = "PI_SUGGEST_MODEL";
@@ -567,6 +568,7 @@ async function generateSuggestion(
 }
 
 export default function suggestExtension(pi: ExtensionAPI): void {
+  once(pi, "pi-suggest", () => {
   let editorRef: SuggestEditor | null = null;
   let lastUIContext: ExtensionContext | undefined;
 
@@ -679,7 +681,9 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       ctx.ui.setStatus(STATUS_ID, undefined);
     }
     }
-  }
+  
+  });
+}
 
 
   function renderSuggestion(ctx: ExtensionContext): void {

@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { once } from "./once.ts";
 
 function formatUsd(cost: number): string {
 	if (!Number.isFinite(cost) || cost <= 0) return "$0.00";
@@ -426,6 +427,7 @@ class ContextView implements Component {
 }
 
 export default function contextExtension(pi: ExtensionAPI) {
+  once(pi, "pi-context", () => {
 	// Track which skills were actually pulled in via read tool calls.
 	let lastSessionId: string | null = null;
 	let cachedLoadedSkills = new Set<string>();
@@ -579,4 +581,6 @@ export default function contextExtension(pi: ExtensionAPI) {
 			});
 		},
 	});
+
+  });
 }

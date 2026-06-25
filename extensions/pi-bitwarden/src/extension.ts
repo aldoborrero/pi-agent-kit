@@ -25,6 +25,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "@aldoborrero/pi-common";
 import { Type } from "@sinclair/typebox";
+import { once } from "./once.ts";
 
 const MASKED = "********";
 
@@ -119,6 +120,7 @@ function isUnlocked(): boolean {
 // ── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-bitwarden", () => {
   let lastStatus: "ready" | "locked" | "missing" = isAvailable()
     ? (isUnlocked() ? "ready" : "locked")
     : "missing";
@@ -506,5 +508,7 @@ The vault must be unlocked first (use /bw unlock command).`,
     }
 
     return undefined;
+  });
+
   });
 }

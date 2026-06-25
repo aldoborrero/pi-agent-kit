@@ -21,6 +21,7 @@
 import { createRequire } from "node:module";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { once } from "./once.ts";
 
 // Resolve the codex-plugin-cc package location robustly via require.resolve,
 // which handles hoisting regardless of where node_modules actually lives.
@@ -76,6 +77,7 @@ function formatOutput(result: {
 }
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-codex", () => {
   const subcommands = [
     "setup",
     "review",
@@ -167,5 +169,7 @@ export default function (pi: ExtensionAPI) {
       const [subcommand, ...rest] = trimmed.split(/\s+/);
       await runSubcommand(subcommand.toLowerCase(), rest.join(" "), ctx);
     },
+  });
+
   });
 }

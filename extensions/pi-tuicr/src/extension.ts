@@ -12,8 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { once } from "./once.ts";
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-tuicr", () => {
 	pi.registerTool({
 		name: "tuicr",
 		label: "tuicr",
@@ -139,4 +141,6 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	});
+
+  });
 }

@@ -8,8 +8,10 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { once } from "./once.ts";
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-git-checkpoint", () => {
 	const checkpoints = new Map<string, string>();
 	let currentEntryId: string | undefined;
 
@@ -52,4 +54,6 @@ export default function (pi: ExtensionAPI) {
 		// Clear checkpoints after agent completes
 		checkpoints.clear();
 	});
+
+  });
 }

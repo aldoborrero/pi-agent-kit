@@ -15,8 +15,10 @@
  * Note: Regular !command syntax (whole-line bash) is preserved and works as before.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { once } from "./once.ts";
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-inline-bash", () => {
 	const PATTERN = /!\{([^}]+)\}/g;
 	const TIMEOUT_MS = 30000;
 
@@ -91,4 +93,6 @@ export default function (pi: ExtensionAPI) {
 
 		return { action: "transform", text: result, images: event.images };
 	});
+
+  });
 }

@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawn } from "node:child_process";
+import { once } from "./once.ts";
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -121,6 +122,7 @@ function formatIssueResults(results: IssueResult[], kind: string): string {
 // ── Extension ────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-github-search", () => {
 	// Code search
 	pi.registerTool({
 		name: "github_search_code",
@@ -241,4 +243,6 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 	});
+
+  });
 }

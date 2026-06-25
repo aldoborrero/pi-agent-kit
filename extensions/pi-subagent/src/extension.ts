@@ -25,6 +25,7 @@ import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.js";
 import { discoverPrompts } from "./prompts.js";
+import { once } from "./once.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -407,6 +408,7 @@ const SubagentParams = Type.Object({
 });
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-subagent", () => {
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
@@ -980,4 +982,6 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify(`Available prompts:\n${lines.join("\n")}`, "info");
 		},
 	});
+
+  });
 }

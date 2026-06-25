@@ -46,6 +46,7 @@ import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox
 import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type BashOperations, createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "@aldoborrero/pi-common";
+import { once } from "./once.ts";
 
 interface SandboxConfig extends SandboxRuntimeConfig {
 	enabled?: boolean;
@@ -214,6 +215,7 @@ function createSandboxedBashOps(): BashOperations {
 }
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-sandbox", () => {
 	pi.registerFlag("no-sandbox", {
 		description: "Disable OS-level sandboxing for bash commands",
 		type: "boolean",
@@ -429,4 +431,6 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.notify("Usage: /sandbox [on|off]", "error");
 		},
 	});
+
+  });
 }

@@ -12,6 +12,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execSync, spawnSync } from "node:child_process";
+import { once } from "./once.ts";
 
 function which(cmd: string): boolean {
 	try {
@@ -23,6 +24,7 @@ function which(cmd: string): boolean {
 }
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-diff", () => {
 	pi.registerCommand("diff", {
 		description: "View uncommitted changes (tuicr/delta/git diff)",
 		getArgumentCompletions: (prefix: string) => {
@@ -89,4 +91,6 @@ export default function (pi: ExtensionAPI) {
 			}
 		},
 	});
+
+  });
 }

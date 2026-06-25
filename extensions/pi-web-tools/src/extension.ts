@@ -4,6 +4,7 @@ import { Type } from "@sinclair/typebox";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { once } from "./once.ts";
 
 const EXA_API_URL = "https://api.exa.ai/search";
 const BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
@@ -568,6 +569,7 @@ function providerCompletions(prefix: string, providers: WebSearchProvider[]) {
 }
 
 export default function webToolsExtension(pi: ExtensionAPI) {
+  once(pi, "pi-web-tools", () => {
   pi.registerTool({
     name: "web_fetch",
     description:
@@ -934,5 +936,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
 
       throw new Error("Usage: /web_fetch [status|provider <jina|native>|clear]");
     },
+  });
+
   });
 }

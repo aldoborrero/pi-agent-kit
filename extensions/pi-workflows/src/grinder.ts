@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync, existsSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
+import { once } from "./once.ts";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { spawn } from "node:child_process";
@@ -949,6 +950,7 @@ async function handleGrindCommand(pi: ExtensionAPI, args: string, ctx: Extension
 // ---------------------------------------------------------------------------
 
 export default function workflowExtension(pi: ExtensionAPI): void {
+  once(pi, "pi-workflows", () => {
   // Track session cwd for completions (getArgumentCompletions has no ctx argument).
   let sessionCwd = process.cwd();
   pi.on("session_start", (_event, ctx) => { sessionCwd = ctx.cwd; });
@@ -1001,5 +1003,6 @@ export default function workflowExtension(pi: ExtensionAPI): void {
       if (!workflow) throw new Error("fuzz workflow not found in .pi/workflows/specs/");
       await runStepWorkflow(pi, workflow.spec, args, ctx, getRepoRoot, createWorkflowContext);
     },
+  });
   });
 }

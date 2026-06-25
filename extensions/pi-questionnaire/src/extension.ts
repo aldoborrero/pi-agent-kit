@@ -16,6 +16,7 @@ import {
   truncateToWidth,
 } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
+import { once } from "./once.ts";
 
 // Types
 interface QuestionOption {
@@ -93,6 +94,7 @@ function errorResult(
 }
 
 export default function questionnaire(pi: ExtensionAPI) {
+  once(pi, "pi-questionnaire", () => {
   pi.on("before_agent_start", async (_event, ctx) => {
     if (!ctx.hasUI) return;
     return {
@@ -489,5 +491,7 @@ export default function questionnaire(pi: ExtensionAPI) {
       });
       return new Text(lines.join("\n"), 0, 0);
     },
+  });
+
   });
 }

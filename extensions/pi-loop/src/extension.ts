@@ -8,6 +8,7 @@ import { registerLoopCommand } from "./loop-command";
 import { getLoopTasksFilePath, loadStoredTasks, saveStoredTasks } from "./persistence";
 import { LoopScheduler } from "./scheduler";
 import { findMissedTasks, hydrateRuntimeTask, InMemoryTaskStore, RECURRING_EXPIRY_DAYS } from "./task-store";
+import { once } from "./once.ts";
 
 /**
  * Loop Extension — periodic polling and monitoring during a session.
@@ -16,6 +17,7 @@ import { findMissedTasks, hydrateRuntimeTask, InMemoryTaskStore, RECURRING_EXPIR
  * is active. Tasks fire between turns (when the agent is idle).
  */
 export default function cronLoopExtension(pi: ExtensionAPI) {
+  once(pi, "pi-loop", () => {
 	const store = new InMemoryTaskStore();
 	let persistChain: Promise<void> = Promise.resolve();
 	let fileWatcher: FSWatcher | null = null;
@@ -223,4 +225,6 @@ export default function cronLoopExtension(pi: ExtensionAPI) {
 		onTasksChanged: persistTasks,
 		setContext,
 	});
+
+  });
 }

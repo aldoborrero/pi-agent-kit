@@ -13,6 +13,7 @@ import { compact } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "@aldoborrero/pi-common";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
+import { once } from "./once.ts";
 
 type LoopMode = "tests" | "custom" | "self";
 
@@ -176,6 +177,7 @@ async function loadState(ctx: ExtensionContext): Promise<LoopStateData> {
 }
 
 export default function loopExtension(pi: ExtensionAPI): void {
+  once(pi, "pi-until", () => {
 	let loopState: LoopStateData = { active: false };
 
 	function persistState(state: LoopStateData): void {
@@ -461,4 +463,6 @@ export default function loopExtension(pi: ExtensionAPI): void {
 	pi.on("session_switch", async (_event: SessionSwitchEvent, ctx) => {
 		await restoreLoopState(ctx);
 	});
+
+  });
 }

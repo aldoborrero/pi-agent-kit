@@ -20,6 +20,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
+import { once } from "./once.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -426,6 +427,7 @@ Languages: javascript, typescript, python, rust, go, java, c, cpp, css, html, an
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-ast-grep", () => {
   pi.registerTool({
     name: "ast_grep",
     description: TOOL_DESCRIPTION,
@@ -762,5 +764,7 @@ export default function (pi: ExtensionAPI) {
       container.addChild(new Markdown(text, 0, 0, mdTheme));
       return container;
     },
+  });
+
   });
 }

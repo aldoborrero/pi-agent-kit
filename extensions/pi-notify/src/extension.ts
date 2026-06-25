@@ -20,6 +20,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
 import { createUiColors } from "@aldoborrero/pi-common";
+import { once } from "./once.ts";
 
 // ---------------------------------------------------------------------------
 // Notification helpers
@@ -73,6 +74,7 @@ function notify(title: string, body: string): void {
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-notify", () => {
 	let enabled = true;
 	let agentStartTime: number | null = null;
 	let turnCount = 0;
@@ -176,4 +178,6 @@ export default function (pi: ExtensionAPI) {
 
 		notify(title, body);
 	});
+
+  });
 }

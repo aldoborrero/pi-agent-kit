@@ -31,6 +31,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { once } from "./once.ts";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { SettingsManager, type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -360,6 +361,7 @@ function extractLastAssistantText(messages: unknown[]): string {
 // ── Extension ─────────────────────────────────────────────────────────────────
 
 export default function walkieExtension(pi: ExtensionAPI) {
+  once(pi, "pi-walkie", () => {
   // ─── pi API shims ─────────────────────────────────────────────────────────
   // getThinkingLevel / setThinkingLevel are available on ExtensionAPI but not
   // re-exported from the package root index in this version of pi.
@@ -1396,6 +1398,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
           );
       }
     },
+  });
   });
 }
 

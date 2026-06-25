@@ -5,7 +5,11 @@
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+  truncateToWidth,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
+import { once } from "./once.ts";
 import {
   createUiColors,
   DEFAULT_ERROR_PERCENT,
@@ -347,6 +351,7 @@ function renderTwoLineFooter(
 }
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-footer", () => {
   pi.registerFlag("footer-two-line", {
     description: "Render footer in two lines (statuses on a second line)",
     type: "boolean",
@@ -370,5 +375,7 @@ export default function (pi: ExtensionAPI) {
         },
       };
     });
+  });
+
   });
 }

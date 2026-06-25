@@ -10,8 +10,10 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { once } from "./once.ts";
 
 export default function (pi: ExtensionAPI) {
+  once(pi, "pi-btw", () => {
 	pi.registerCommand("btw", {
 		description: "Ask a quick side question (ephemeral, no tools, doesn't pollute context)",
 		handler: async (args, ctx) => {
@@ -46,4 +48,6 @@ export default function (pi: ExtensionAPI) {
 			}),
 		};
 	});
+
+  });
 }
