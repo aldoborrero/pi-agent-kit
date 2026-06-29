@@ -32,6 +32,7 @@ const MASKED = "********";
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const RBW_TIMEOUT_MS = 10_000;
+const RBW_UNLOCK_TIMEOUT_MS = 120_000;
 
 function runRbw(args: string[], signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -76,6 +77,61 @@ function runRbw(args: string[], signal?: AbortSignal): Promise<string> {
         return;
       }
       resolve(stdout.trim());
+    });
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(err);
+    });
+  });
+}
+
+function runRbwUnlock(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+
+    // rbw unlock uses pinentry. If rbw is spawned with piped stdio, pinentry can
+    // fail with "Inappropriate ioctl for device" because it cannot talk to the
+    // real terminal. Attach the command explicitly to /dev/tty so pinentry has a
+    // controlling TTY while keeping the non-interactive rbw helpers piped.
+    const child = spawn(
+      "sh",
+      ["-lc", "exec rbw unlock < /dev/tty > /dev/tty 2> /dev/tty"],
+      {
+        stdio: ["ignore", "ignore", "pipe"],
+        env: { ...process.env, GPG_TTY: process.env.GPG_TTY || "/dev/tty" },
+      },
+    );
+
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`rbw unlock timed out after ${RBW_UNLOCK_TIMEOUT_MS / 1000}s`));
+    }, RBW_UNLOCK_TIMEOUT_MS);
+
+    const onAbort = () => {
+      child.kill();
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    let stderr = "";
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `rbw unlock exited with code ${code}. If pinentry did not appear, run rbw unlock in a shell first.`));
+        return;
+      }
+      resolve();
     });
 
     child.on("error", (err) => {
@@ -192,8 +248,8 @@ export default function (pi: ExtensionAPI) {
         }
 
         try {
-          // rbw unlock prompts for master password via pinentry/agent
-          await runRbw(["unlock"]);
+          ctx.ui.notify("Opening rbw pinentry in the terminal…", "info");
+          await runRbwUnlock();
           updateStatus(ctx);
           ctx.ui.notify("Vault unlocked.", "info");
         } catch (err) {
