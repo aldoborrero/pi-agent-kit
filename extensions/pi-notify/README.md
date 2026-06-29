@@ -1,12 +1,14 @@
 # notify
 
-Sends a native terminal notification when the agent finishes and is waiting for input.
+Sends a native terminal notification when the agent finishes or asks a question and is waiting for input.
 
 ## Supported terminals
 
 - **OSC 777**: Ghostty, iTerm2, WezTerm, rxvt-unicode
 - **OSC 99**: Kitty
 - **Windows toast**: Windows Terminal (WSL)
+
+The extension writes notifications to the controlling terminal where possible and includes tmux-aware delivery for inactive panes/windows.
 
 ## Notification content
 
@@ -20,6 +22,8 @@ Each notification contains:
 When no assistant text is available the body falls back to the stats summary
 (`42s · 3 turns · 2 files`) or `"Ready for input"` if the session produced no
 measurable activity.
+
+Question tool calls also send a short `Input required: ...` notification.
 
 ## Stats tracked
 
@@ -52,8 +56,11 @@ The current state is shown in the footer (`notify:on` / `notify:off`).
 | `agent_start` | Reset stats counters |
 | `turn_start` | Increment turn counter |
 | `tool_result` | Count successful file edits/writes |
+| `tool_call` | Notify immediately when the `question` tool requests input |
 | `agent_end` | Send desktop notification (if enabled) |
 
 ## Attribution
 
 Based on [pi-mono example extension](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/examples/extensions/notify.ts).
+
+Tmux delivery, cooldown, and sanitization improvements were inspired by [vanillagreencom/vstack pi-qol notifications](https://github.com/vanillagreencom/vstack/blob/main/pi-extensions/pi-qol/extensions/qol/notifications.ts), reimplemented for this standalone extension.
