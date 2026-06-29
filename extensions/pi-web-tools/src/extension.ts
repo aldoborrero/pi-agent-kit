@@ -1,6 +1,7 @@
 import { complete, type Message } from "@earendil-works/pi-ai";
 import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
+import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -63,6 +64,7 @@ interface SearxResponse {
 }
 
 type WebSearchProvider = "auto" | "exa" | "brave" | "searx";
+type WebSearchBackendName = Exclude<WebSearchProvider, "auto">;
 type WebFetchProvider = "jina" | "native";
 
 type WebToolsConfig = {
@@ -75,6 +77,42 @@ type SearchResult = {
   url: string;
   snippet?: string;
   published?: string;
+};
+
+type WebSearchBackendParams = {
+  query: string;
+  numResults: number;
+  searchType: "auto" | "neural" | "fast" | "deep";
+  includeDomains?: string[];
+  excludeDomains?: string[];
+  signal?: AbortSignal;
+};
+
+type WebSearchBackend = {
+  name: WebSearchBackendName;
+  label: string;
+  description: string;
+  search(params: WebSearchBackendParams): Promise<{ provider: string; results: SearchResult[] }>;
+};
+
+type GhCodeResult = {
+  path: string;
+  repository: { fullName: string };
+  url: string;
+  textMatches?: Array<{ fragment?: string | null }>;
+};
+
+type GhIssueResult = {
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+  author?: { login?: string | null } | null;
+  labels?: Array<{ name: string }> | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  comments?: number | null;
+  body?: string | null;
 };
 
 function ok(text: string, details?: Record<string, unknown>) {
@@ -186,6 +224,107 @@ function formatSearchResults(query: string, provider: string, results: SearchRes
   }
 
   return lines.join("\n");
+}
+
+function runGh(subcommand: string[], jsonFields: string, signal?: AbortSignal): Promise<unknown[]> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+
+    const child = spawn("gh", [...subcommand, "--json", jsonFields], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    const onAbort = () => {
+      child.kill();
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+
+    child.on("close", (code) => {
+      signal?.removeEventListener("abort", onAbort);
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || `gh exited with code ${code}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout) as unknown[]);
+      } catch {
+        reject(new Error(`Failed to parse gh output: ${stdout}`));
+      }
+    });
+
+    child.on("error", (err) => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(err);
+    });
+  });
+}
+
+function githubSearchFailure(error: unknown) {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (msg.includes("ENOENT") || msg.includes("gh: command not found")) {
+    return fail("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/.");
+  }
+  if (msg.includes("not logged in") || msg.includes("auth login")) {
+    return fail("GitHub CLI is not authenticated. Run `gh auth login`.");
+  }
+  if ((error as Error).name === "AbortError") {
+    return fail("GitHub search aborted");
+  }
+  return fail(`GitHub search failed: ${msg}`);
+}
+
+function formatGithubCodeResults(results: GhCodeResult[]): string {
+  if (results.length === 0) return "No results found.";
+
+  const lines: string[] = [`Found ${results.length} result(s):`, ""];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    lines.push(`### ${i + 1}. ${result.repository.fullName}/${result.path}`);
+    lines.push(`- URL: ${result.url}`);
+    for (const match of result.textMatches ?? []) {
+      const fragment = match.fragment?.split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
+      if (fragment) lines.push("```\n" + fragment + "\n```");
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+
+function formatGithubIssueResults(results: GhIssueResult[], kind: string): string {
+  if (results.length === 0) return `No ${kind} found.`;
+
+  const lines: string[] = [`Found ${results.length} ${kind}:`, ""];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const state = result.state === "open" ? "OPEN" : "CLOSED";
+    const labels = result.labels?.length ? result.labels.map((label) => label.name).join(", ") : "";
+    const age = result.createdAt?.slice(0, 10) ?? "";
+
+    lines.push(`### ${i + 1}. #${result.number} ${result.title}`);
+    lines.push(`- State: ${state}`);
+    lines.push(`- Author: ${result.author?.login ?? "?"}`);
+    if (age) lines.push(`- Date: ${age}`);
+    lines.push(`- Comments: ${result.comments ?? 0}`);
+    if (labels) lines.push(`- Labels: ${labels}`);
+    lines.push(`- URL: ${result.url}`);
+
+    if (result.body) {
+      lines.push("");
+      lines.push(truncate(result.body.replace(/\s+/g, " "), 300).text);
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trim();
 }
 
 async function extractFromMarkdown(
@@ -561,6 +700,65 @@ async function runSearxSearch(params: {
   return { provider: "searx", results: results.slice(0, params.numResults) };
 }
 
+const WEB_SEARCH_BACKENDS = {
+  exa: {
+    name: "exa",
+    label: "Exa",
+    description: "AI-native semantic search; best for documentation, research, and finding high-signal sources.",
+    search: (params) => runExaSearch({
+      query: params.query,
+      numResults: params.numResults,
+      searchType: params.searchType,
+      includeDomains: params.includeDomains,
+      excludeDomains: params.excludeDomains,
+      signal: params.signal,
+    }),
+  },
+  brave: {
+    name: "brave",
+    label: "Brave",
+    description: "General web search using Brave Search API; good fallback for broad/current queries.",
+    search: async (params) => {
+      const response = await runBraveSearch({
+        query: params.query,
+        numResults: params.numResults,
+        signal: params.signal,
+      });
+      response.results = filterByDomains(response.results, params.includeDomains, params.excludeDomains);
+      return response;
+    },
+  },
+  searx: {
+    name: "searx",
+    label: "SearXNG",
+    description: "Self-hosted/privacy-oriented metasearch via a configured SearXNG instance.",
+    search: (params) => runSearxSearch({
+      query: params.query,
+      numResults: params.numResults,
+      includeDomains: params.includeDomains,
+      excludeDomains: params.excludeDomains,
+      signal: params.signal,
+    }),
+  },
+} satisfies Record<WebSearchBackendName, WebSearchBackend>;
+
+const WEB_SEARCH_BACKEND_ORDER = Object.keys(WEB_SEARCH_BACKENDS) as WebSearchBackendName[];
+const WEB_SEARCH_PROVIDERS = ["auto", ...WEB_SEARCH_BACKEND_ORDER] as WebSearchProvider[];
+
+function runWebSearchBackend(
+  backend: WebSearchBackendName,
+  params: WebSearchBackendParams,
+): Promise<{ provider: string; results: SearchResult[] }> {
+  return WEB_SEARCH_BACKENDS[backend].search(params);
+}
+
+function webSearchBackendSummary(): string[] {
+  return WEB_SEARCH_BACKEND_ORDER.map((name) => {
+    const backend = WEB_SEARCH_BACKENDS[name];
+    return `- ${name}: ${backend.label} — ${backend.description}`;
+  });
+}
+
 function providerCompletions(prefix: string, providers: WebSearchProvider[]) {
   const trimmed = prefix.trimStart().toLowerCase();
   if (!trimmed) return providers.map((value) => ({ value, label: value }));
@@ -727,59 +925,31 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       const excludeDomains = params.exclude_domains?.map(normalizeDomain).filter(Boolean);
 
       try {
-        let searchResponse: { provider: string; results: SearchResult[] };
+        let searchResponse: { provider: string; results: SearchResult[] } | undefined;
+        const searchParams: WebSearchBackendParams = {
+          query,
+          numResults,
+          searchType: params.type ?? "auto",
+          includeDomains,
+          excludeDomains,
+          signal,
+        };
 
-        if (provider === "exa") {
-          searchResponse = await runExaSearch({
-            query,
-            numResults,
-            searchType: params.type ?? "auto",
-            includeDomains,
-            excludeDomains,
-            signal,
-          });
-        } else if (provider === "brave") {
-          searchResponse = await runBraveSearch({ query, numResults, signal });
-          searchResponse.results = filterByDomains(searchResponse.results, includeDomains, excludeDomains);
-        } else if (provider === "searx") {
-          searchResponse = await runSearxSearch({
-            query,
-            numResults,
-            includeDomains,
-            excludeDomains,
-            signal,
-          });
+        if (provider !== "auto") {
+          searchResponse = await runWebSearchBackend(provider, searchParams);
         } else {
           const errors: string[] = [];
-
-          try {
-            searchResponse = await runExaSearch({
-              query,
-              numResults,
-              searchType: params.type ?? "auto",
-              includeDomains,
-              excludeDomains,
-              signal,
-            });
-          } catch (exaError) {
-            errors.push(`exa: ${(exaError as Error).message}`);
-
+          for (const backend of WEB_SEARCH_BACKEND_ORDER) {
             try {
-              searchResponse = await runBraveSearch({ query, numResults, signal });
-              searchResponse.results = filterByDomains(searchResponse.results, includeDomains, excludeDomains);
-            } catch (braveError) {
-              errors.push(`brave: ${(braveError as Error).message}`);
-              searchResponse = await runSearxSearch({
-                query,
-                numResults,
-                includeDomains,
-                excludeDomains,
-                signal,
-              }).catch((searxError) => {
-                errors.push(`searx: ${(searxError as Error).message}`);
-                throw new Error(`All web search providers failed (${errors.join('; ')})`);
-              });
+              searchResponse = await runWebSearchBackend(backend, searchParams);
+              break;
+            } catch (backendError) {
+              errors.push(`${backend}: ${(backendError as Error).message}`);
             }
+          }
+
+          if (!searchResponse) {
+            throw new Error(`All web search providers failed (${errors.join("; ")})`);
           }
         }
 
@@ -812,6 +982,134 @@ export default function webToolsExtension(pi: ExtensionAPI) {
     },
   });
 
+  pi.registerTool({
+    name: "github_search_code",
+    description: "Search code across GitHub repositories via gh CLI. Find usage examples, implementations, and configuration patterns.",
+    promptGuidelines: [
+      "Use github_search_code to find how others implement specific patterns or use specific APIs.",
+      "Use repo to search within a specific repository.",
+      "Prefer focused qualifiers such as language, extension, filename, owner, or repo.",
+    ],
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query (e.g., 'useState lang:typescript', 'filename:flake.nix nixpkgs')" }),
+      language: Type.Optional(Type.String({ description: "Filter by language (e.g., 'python', 'typescript')" })),
+      owner: Type.Optional(Type.String({ description: "Filter by repo owner (e.g., 'nixos')" })),
+      repo: Type.Optional(Type.String({ description: "Filter by repo (e.g., 'nixos/nixpkgs')" })),
+      extension: Type.Optional(Type.String({ description: "Filter by file extension (e.g., 'ts', 'nix')" })),
+      filename: Type.Optional(Type.String({ description: "Filter by filename (e.g., 'flake.nix')" })),
+      limit: Type.Optional(Type.Number({ description: "Max results (default: 10, max: 100)", minimum: 1, maximum: 100 })),
+    }),
+    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+      const query = params.query.trim();
+      if (!query) return fail("GitHub code search query cannot be empty");
+
+      try {
+        const args = ["search", "code", query];
+        if (params.language) args.push("--language", params.language);
+        if (params.owner) args.push("--owner", params.owner);
+        if (params.repo) args.push("--repo", params.repo);
+        if (params.extension) args.push("--extension", params.extension);
+        if (params.filename) args.push("--filename", params.filename);
+        args.push("--limit", String(clamp(params.limit ?? 10, 1, 100)));
+
+        onUpdate?.({ content: [{ type: "text", text: `Searching GitHub code: ${query}...` }] });
+
+        const results = await runGh(args, "path,repository,url,textMatches", signal) as GhCodeResult[];
+        return ok(formatGithubCodeResults(results), { query, resultCount: results.length });
+      } catch (error) {
+        return githubSearchFailure(error);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "github_search_issues",
+    description: "Search GitHub issues. Find bugs, feature requests, discussions, and known problems in repositories.",
+    promptGuidelines: [
+      "Use github_search_issues to find known bugs, error reports, or feature requests.",
+      "Use repo to search within a specific repository.",
+      "Use state to filter open or closed issues.",
+    ],
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query (e.g., 'memory leak', 'segfault in parser')" }),
+      repo: Type.Optional(Type.String({ description: "Filter by repo (e.g., 'badlogic/pi-mono')" })),
+      owner: Type.Optional(Type.String({ description: "Filter by repo owner" })),
+      state: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("closed")], { description: "Filter by state" })),
+      label: Type.Optional(Type.String({ description: "Filter by label (e.g., 'bug', 'enhancement')" })),
+      sort: Type.Optional(Type.Union(
+        [Type.Literal("created"), Type.Literal("updated"), Type.Literal("comments"), Type.Literal("reactions")],
+        { description: "Sort order (default: created)" },
+      )),
+      limit: Type.Optional(Type.Number({ description: "Max results (default: 10, max: 100)", minimum: 1, maximum: 100 })),
+    }),
+    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+      const query = params.query.trim();
+      if (!query) return fail("GitHub issue search query cannot be empty");
+
+      try {
+        const args = ["search", "issues", query, "--type=issue"];
+        if (params.repo) args.push("--repo", params.repo);
+        if (params.owner) args.push("--owner", params.owner);
+        if (params.state) args.push("--state", params.state);
+        if (params.label) args.push("--label", params.label);
+        if (params.sort) args.push("--sort", params.sort);
+        args.push("--limit", String(clamp(params.limit ?? 10, 1, 100)));
+
+        onUpdate?.({ content: [{ type: "text", text: `Searching GitHub issues: ${query}...` }] });
+
+        const results = await runGh(args, "number,title,state,url,author,labels,createdAt,updatedAt,comments,body", signal) as GhIssueResult[];
+        return ok(formatGithubIssueResults(results, "issues"), { query, resultCount: results.length });
+      } catch (error) {
+        return githubSearchFailure(error);
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "github_search_prs",
+    description: "Search GitHub pull requests. Find related PRs, implementations, and code changes across repositories.",
+    promptGuidelines: [
+      "Use github_search_prs to find related implementations or how others solved similar problems.",
+      "Use state='merged' to find accepted solutions.",
+    ],
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query (e.g., 'fix auth token refresh')" }),
+      repo: Type.Optional(Type.String({ description: "Filter by repo (e.g., 'badlogic/pi-mono')" })),
+      owner: Type.Optional(Type.String({ description: "Filter by repo owner" })),
+      state: Type.Optional(Type.Union(
+        [Type.Literal("open"), Type.Literal("closed"), Type.Literal("merged")],
+        { description: "Filter by state" },
+      )),
+      label: Type.Optional(Type.String({ description: "Filter by label" })),
+      sort: Type.Optional(Type.Union(
+        [Type.Literal("created"), Type.Literal("updated"), Type.Literal("comments"), Type.Literal("reactions")],
+        { description: "Sort order (default: created)" },
+      )),
+      limit: Type.Optional(Type.Number({ description: "Max results (default: 10, max: 100)", minimum: 1, maximum: 100 })),
+    }),
+    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+      const query = params.query.trim();
+      if (!query) return fail("GitHub pull request search query cannot be empty");
+
+      try {
+        const args = ["search", "prs", query];
+        if (params.repo) args.push("--repo", params.repo);
+        if (params.owner) args.push("--owner", params.owner);
+        if (params.state) args.push("--state", params.state);
+        if (params.label) args.push("--label", params.label);
+        if (params.sort) args.push("--sort", params.sort);
+        args.push("--limit", String(clamp(params.limit ?? 10, 1, 100)));
+
+        onUpdate?.({ content: [{ type: "text", text: `Searching GitHub PRs: ${query}...` }] });
+
+        const results = await runGh(args, "number,title,state,url,author,labels,createdAt,updatedAt,comments,body", signal) as GhIssueResult[];
+        return ok(formatGithubIssueResults(results, "pull requests"), { query, resultCount: results.length });
+      } catch (error) {
+        return githubSearchFailure(error);
+      }
+    },
+  });
+
   pi.registerCommand("web_search", {
     description: "Configure the default provider for the web_search tool",
     getArgumentCompletions: (prefix: string) => {
@@ -819,7 +1117,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       const parts = trimmed.split(/\s+/).filter(Boolean);
       const endsWithSpace = /\s$/.test(trimmed);
       const root = ["status", "provider", "clear"];
-      const providers: WebSearchProvider[] = ["auto", "exa", "brave", "searx"];
+      const providers = WEB_SEARCH_PROVIDERS;
 
       if (!trimmed) return root.map((value) => ({ value, label: value }));
       if (parts.length <= 1 && !endsWithSpace) {
@@ -844,6 +1142,9 @@ export default function webToolsExtension(pi: ExtensionAPI) {
           `Default provider: ${provider}`,
           `Config path: ${configPath}`,
           `Settings key: ${WEB_TOOLS_SETTINGS_KEY}`,
+          "",
+          "Registered backends:",
+          ...webSearchBackendSummary(),
         ].join("\n"), "info");
         return;
       }
@@ -852,8 +1153,8 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       const remainder = rest.join(" ").trim().toLowerCase();
 
       if (subcommand === "provider") {
-        if (remainder !== "auto" && remainder !== "exa" && remainder !== "brave" && remainder !== "searx") {
-          throw new Error("Usage: /web_search provider <auto|exa|brave|searx>");
+        if (!WEB_SEARCH_PROVIDERS.includes(remainder as WebSearchProvider)) {
+          throw new Error(`Usage: /web_search provider <${WEB_SEARCH_PROVIDERS.join("|")}>`);
         }
         await saveWebToolsConfig(ctx.cwd, { defaultProvider: remainder as WebSearchProvider });
         ctx.ui.notify(`web_search default provider set to ${remainder} in ${configPath}#${WEB_TOOLS_SETTINGS_KEY}`, "info");
@@ -866,7 +1167,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
         return;
       }
 
-      throw new Error("Usage: /web_search [status|provider <auto|exa|brave|searx>|clear]");
+      throw new Error(`Usage: /web_search [status|provider <${WEB_SEARCH_PROVIDERS.join("|")}>|clear]`);
     },
   });
 
