@@ -150,14 +150,14 @@ export default function (pi: ExtensionAPI) {
     const colors = createUiColors(ctx.ui.theme);
 
     if (!available) {
-      ctx.ui.setStatus("bitwarden", colors.danger("rbw:missing"));
+      ctx.ui.setStatus("bitwarden", colors.danger("󰌾 missing"));
       return;
     }
 
     if (lastStatus === "ready") {
-      ctx.ui.setStatus("bitwarden", colors.success("rbw:unlocked"));
+      ctx.ui.setStatus("bitwarden", colors.success("󰌾 unlocked"));
     } else {
-      ctx.ui.setStatus("bitwarden", colors.warning("rbw:locked"));
+      ctx.ui.setStatus("bitwarden", colors.warning("󰌾 locked"));
     }
   }
 

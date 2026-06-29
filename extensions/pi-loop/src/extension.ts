@@ -130,8 +130,8 @@ export default function cronLoopExtension(pi: ExtensionAPI) {
 		latestCtx.ui.setStatus(
 			"loop",
 			scheduler.isSchedulerOwner()
-				? colors.success(`loop:${store.size()}${suffix}`)
-				: colors.meta(`loop:${store.size()}${suffix}`),
+				? colors.success(` ${store.size()}${suffix}`)
+				: colors.meta(` ${store.size()}${suffix}`),
 		);
 	}
 

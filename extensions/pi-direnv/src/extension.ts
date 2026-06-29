@@ -46,7 +46,7 @@ export default function (pi: ExtensionAPI) {
     const colors = createUiColors(ctx.ui.theme);
     ctx.ui.setStatus(
       "direnv",
-      status === "blocked" ? colors.warning("direnv:blocked") : colors.danger("direnv:error"),
+      status === "blocked" ? colors.warning("󰒓 blocked") : colors.danger("󰒓 error"),
     );
   }
 

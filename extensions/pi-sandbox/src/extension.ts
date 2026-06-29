@@ -237,10 +237,10 @@ export default function (pi: ExtensionAPI) {
 		}
 		const colors = createUiColors(ctx.ui.theme);
 		const text = status === "on"
-			? colors.primary("sandbox:on")
+			? colors.primary("󰒃")
 			: status === "restricted"
-				? colors.warning("sandbox:restricted")
-				: colors.danger("sandbox:error");
+				? colors.warning("󰒃 restricted")
+				: colors.danger("󰒃 error");
 		ctx.ui.setStatus("sandbox", text);
 	}
 
