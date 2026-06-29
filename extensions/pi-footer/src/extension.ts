@@ -371,8 +371,8 @@ function styleStatus(
   status: FooterStatus,
   colors: ReturnType<typeof createUiColors>,
 ): string {
-  if (status.priority === "error") return colors.danger(`● ${status.text}`);
-  if (status.priority === "warning") return colors.warning(`! ${status.text}`);
+  if (status.priority === "error") return colors.danger(status.text);
+  if (status.priority === "warning") return colors.warning(status.text);
   return colors.meta(status.text);
 }
 
