@@ -1,6 +1,5 @@
 {
   "name": "@aldoborrero/pi-workflows",
-  "private": true,
   "version": "1.0.0",
   "type": "module",
   "description": "Workflow engine for autonomous repo workflows",
@@ -26,5 +25,15 @@
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
-  }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aldoborrero/pi-agent-kit.git",
+    "directory": "extensions/pi-workflows"
+  },
+  "author": "aldoborrero",
+  "license": "MIT"
 }

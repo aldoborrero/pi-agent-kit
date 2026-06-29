@@ -6,7 +6,8 @@
   "main": "src/extension.ts",
   "exports": {
     ".": "./src/extension.ts",
-    "./ui-colors": "./src/ui-colors.ts"
+    "./ui-colors": "./src/ui-colors.ts",
+    "./editor-registry": "./src/editor-registry.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
@@ -15,5 +16,18 @@
     "@earendil-works/pi-tui": "*"
   },
   "author": "aldoborrero",
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aldoborrero/pi-agent-kit.git",
+    "directory": "extensions/pi-common"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ]
 }
