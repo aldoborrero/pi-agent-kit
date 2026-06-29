@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { convert } from "html-to-text";
 import type { SearchResult, WebBackendConfig } from "../search-registry.ts";
 
 const credentialCache = new Map<string, string | undefined>();
@@ -47,6 +48,27 @@ export function dedupeByUrl(results: SearchResult[]): SearchResult[] {
     deduped.push(result);
   }
   return deduped;
+}
+
+export function stripHtmlToText(html: string): string {
+  return convert(html, {
+    wordwrap: false,
+    selectors: [
+      { selector: "a", options: { ignoreHref: true } },
+      { selector: "img", format: "skip" },
+      { selector: "script", format: "skip" },
+      { selector: "style", format: "skip" },
+      { selector: "noscript", format: "skip" },
+    ],
+  }).replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Decode HTML entities and strip tags (lightweight, for snippets). */
+export function decodeHtml(text: string): string {
+  return convert(text, {
+    wordwrap: false,
+    selectors: [{ selector: "a", options: { ignoreHref: true } }],
+  }).replace(/\s+/g, " ").trim();
 }
 
 function resolveCredentialReference(reference: string | undefined): string | undefined {

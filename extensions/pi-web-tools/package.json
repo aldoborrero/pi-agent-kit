@@ -30,5 +30,8 @@
     "directory": "extensions/pi-web-tools"
   },
   "author": "aldoborrero",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "html-to-text": "^10.0.0"
+  }
 }

@@ -14,7 +14,7 @@ import {
   type WebSearchBackendParams,
   type WebSearchProvider,
 } from "./search-registry.ts";
-import { resolveApiKey } from "./providers/utils.ts";
+import { resolveApiKey, stripHtmlToText } from "./providers/utils.ts";
 
 const WEB_TOOLS_SETTINGS_KEY = "webTools";
 const DEFAULT_FETCH_MAX_CHARS = 20_000;
@@ -441,26 +441,6 @@ async function clearWebToolsConfig(cwd: string): Promise<void> {
 }
 
 
-function stripHtmlToText(html: string): string {
-  return html
-    .replace(/<!--.*?-->/gs, "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, "")
-    .replace(/<\/?(p|div|br|hr|h[1-6]|li|tr|blockquote|pre|section|article|header|footer|nav|main|aside)[\s>][^>]*>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&#(\d+);/gi, (_m, code) => String.fromCharCode(Number(code)))
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n[ \t]*\n/g, "\n\n")
-    .replace(/^[ \t]+/gm, "")
-    .trim();
-}
 
 async function nativeFetchHtml(url: URL, signal?: AbortSignal): Promise<{ text: string; contentType: string }> {
   const response = await fetch(url, {
