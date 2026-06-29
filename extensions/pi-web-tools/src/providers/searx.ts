@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
 import { dedupeByUrl, filterByDomains, truncate } from "./utils.ts";
 
 const SEARXNG_CONFIG_PATH = join(homedir(), ".config", "searxng-search", "config.json");
@@ -51,7 +51,7 @@ async function resolveSearxApiBase(): Promise<string> {
 }
 
 export const searxBackend: WebSearchBackend = {
-  name: "searx",
+  name: BACKEND_NAMES.searx,
   label: "SearXNG",
   description: "Self-hosted/privacy-oriented metasearch via a configured SearXNG instance.",
   async search(params) {

@@ -1,7 +1,8 @@
-import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
-import { truncate } from "./utils.ts";
+import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
+import { resolveApiKey, truncate } from "./utils.ts";
 
 const EXA_API_URL = "https://api.exa.ai/search";
+const EXA_CONTENTS_URL = "https://api.exa.ai/contents";
 
 interface ExaResult {
   title?: string | null;
@@ -16,12 +17,36 @@ interface ExaResponse {
   results?: ExaResult[];
 }
 
+export async function fetchExaContents(url: URL, signal?: AbortSignal): Promise<{ text: string; source: string }> {
+  const apiKey = resolveApiKey(undefined, ["EXA_API_KEY", "SEARCH_EXA_API_KEY"]);
+  if (!apiKey) throw new Error("EXA_API_KEY not set");
+
+  const response = await fetch(EXA_CONTENTS_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+    },
+    body: JSON.stringify({ urls: [url.toString()], text: true }),
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Exa contents error (${response.status}): ${await response.text()}`);
+  }
+
+  const data = (await response.json()) as { results?: Array<{ text?: string; title?: string; url?: string }> };
+  const text = data.results?.[0]?.text ?? "";
+  if (!text.trim()) throw new Error(`Exa contents returned no content for ${url.toString()}`);
+  return { text, source: "exa" };
+}
+
 export const exaBackend: WebSearchBackend = {
-  name: "exa",
+  name: BACKEND_NAMES.exa,
   label: "Exa",
   description: "AI-native semantic search; best for documentation, research, and finding high-signal sources.",
+  requiresKey: true,
   async search(params) {
-    const apiKey = process.env.EXA_API_KEY;
+    const apiKey = resolveApiKey(params.backendConfig, ["EXA_API_KEY", "SEARCH_EXA_API_KEY"]);
     if (!apiKey) {
       throw new Error("EXA_API_KEY not set");
     }

@@ -1,15 +1,20 @@
 import { complete, type Message } from "@earendil-works/pi-ai";
-import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SettingsManager, type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { once } from "./once.ts";
+import { fetchExaContents } from "./providers/exa.ts";
+import { fetchFirecrawl } from "./providers/firecrawl.ts";
 import {
   createWebSearchRegistry,
   type SearchResult,
+  type WebBackendConfig,
   type WebSearchBackendParams,
   type WebSearchProvider,
 } from "./search-registry.ts";
+import { resolveApiKey } from "./providers/utils.ts";
 
 const WEB_TOOLS_SETTINGS_KEY = "webTools";
 const DEFAULT_FETCH_MAX_CHARS = 20_000;
@@ -18,11 +23,12 @@ const DEFAULT_SEARCH_RESULTS = 8;
 const MAX_SEARCH_RESULTS = 20;
 const EXTRACT_PROMPT_MAX_CHARS = 40_000;
 
-type WebFetchProvider = "jina" | "native";
+type WebFetchProvider = "jina" | "native" | "firecrawl" | "exa";
 
 type WebToolsConfig = {
   defaultProvider?: WebSearchProvider;
   defaultFetchProvider?: WebFetchProvider;
+  backends?: Record<string, WebBackendConfig | undefined>;
 };
 
 type GhCodeResult = {
@@ -320,19 +326,59 @@ function resolveWebToolsConfigPath(cwd: string): string {
   return join(cwd, ".pi", "settings.json");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeBackends(raw: unknown): Record<string, WebBackendConfig | undefined> | undefined {
+  if (!isRecord(raw)) return undefined;
+  const backends: Record<string, WebBackendConfig | undefined> = {};
+  for (const [name, value] of Object.entries(raw)) {
+    if (!isRecord(value)) continue;
+    backends[name] = {
+      enabled: typeof value.enabled === "boolean" ? value.enabled : undefined,
+      apiKey: typeof value.apiKey === "string" ? value.apiKey : undefined,
+      baseUrl: typeof value.baseUrl === "string" ? value.baseUrl : typeof value.instanceUrl === "string" ? value.instanceUrl : undefined,
+      model: typeof value.model === "string" ? value.model : undefined,
+      searchDepth: typeof value.searchDepth === "string" ? value.searchDepth : typeof value.depth === "string" ? value.depth : undefined,
+    };
+  }
+  return backends;
+}
+
 function normalizeWebToolsConfig(raw: unknown): WebToolsConfig {
-  if (!raw || typeof raw !== "object") return {};
-  const obj = raw as Record<string, unknown>;
+  if (!isRecord(raw)) return {};
   const config: WebToolsConfig = {};
-  const candidate = obj.defaultProvider;
-  if (candidate === "auto" || candidate === "exa" || candidate === "brave" || candidate === "searx") {
-    config.defaultProvider = candidate;
+  const candidate = raw.defaultProvider ?? raw.defaultBackend;
+  if (typeof candidate === "string" && WEB_SEARCH_PROVIDERS.includes(candidate as WebSearchProvider)) {
+    config.defaultProvider = candidate as WebSearchProvider;
   }
-  const fetchCandidate = obj.defaultFetchProvider;
-  if (fetchCandidate === "jina" || fetchCandidate === "native") {
-    config.defaultFetchProvider = fetchCandidate;
+  const fetchCandidate = raw.defaultFetchProvider ?? raw.reader;
+  if (typeof fetchCandidate === "string" && ["jina", "native", "firecrawl", "exa"].includes(fetchCandidate)) {
+    config.defaultFetchProvider = fetchCandidate as WebFetchProvider;
   }
+  config.backends = normalizeBackends(raw.backends);
   return config;
+}
+
+function mergeWebToolsConfig(base: WebToolsConfig, override: WebToolsConfig): WebToolsConfig {
+  return {
+    ...base,
+    ...override,
+    backends: {
+      ...(base.backends ?? {}),
+      ...(override.backends ?? {}),
+    },
+  };
+}
+
+function readConfigFile(path: string): WebToolsConfig {
+  try {
+    if (!existsSync(path)) return {};
+    return normalizeWebToolsConfig(JSON.parse(readFileSync(path, "utf8")));
+  } catch {
+    return {};
+  }
 }
 
 async function withSettingsManager<T>(cwd: string, fn: (manager: SettingsManager) => Promise<T> | T): Promise<T> {
@@ -342,10 +388,21 @@ async function withSettingsManager<T>(cwd: string, fn: (manager: SettingsManager
 }
 
 async function loadWebToolsConfig(cwd: string): Promise<WebToolsConfig> {
-  return await withSettingsManager(cwd, (manager) => {
+  const fileConfig = mergeWebToolsConfig(
+    readConfigFile(join(getAgentDir(), "extensions", "search.json")),
+    readConfigFile(join(cwd, ".pi", "search.json")),
+  );
+
+  const settingsConfig = await withSettingsManager(cwd, (manager) => {
+    const globalSettings = manager.getGlobalSettings() as Record<string, unknown>;
     const projectSettings = manager.getProjectSettings() as Record<string, unknown>;
-    return normalizeWebToolsConfig(projectSettings[WEB_TOOLS_SETTINGS_KEY]);
+    return mergeWebToolsConfig(
+      normalizeWebToolsConfig(globalSettings[WEB_TOOLS_SETTINGS_KEY]),
+      normalizeWebToolsConfig(projectSettings[WEB_TOOLS_SETTINGS_KEY]),
+    );
   });
+
+  return mergeWebToolsConfig(fileConfig, settingsConfig);
 }
 
 async function saveWebToolsConfig(cwd: string, config: WebToolsConfig): Promise<void> {
@@ -380,15 +437,6 @@ async function clearWebToolsConfig(cwd: string): Promise<void> {
   });
 }
 
-async function resolveDefaultProvider(cwd: string): Promise<WebSearchProvider> {
-  const config = await loadWebToolsConfig(cwd);
-  return config.defaultProvider ?? "auto";
-}
-
-async function resolveDefaultFetchProvider(cwd: string): Promise<WebFetchProvider> {
-  const config = await loadWebToolsConfig(cwd);
-  return config.defaultFetchProvider ?? "jina";
-}
 
 function stripHtmlToText(html: string): string {
   return html
@@ -439,6 +487,12 @@ async function fetchWithProvider(
     const isHtml = contentType.includes("text/html") || contentType.includes("application/xhtml");
     return { text: isHtml ? stripHtmlToText(text) : text, source: "native" };
   }
+  if (provider === "firecrawl") {
+    return await fetchFirecrawl(url, signal);
+  }
+  if (provider === "exa") {
+    return await fetchExaContents(url, signal);
+  }
 
   // Jina provider (default)
   const jinaUrl = `https://r.jina.ai/${url.toString()}`;
@@ -481,12 +535,12 @@ export default function webToolsExtension(pi: ExtensionAPI) {
     parameters: Type.Object({
       url: Type.String({ description: "The URL to fetch (http/https only)" }),
       provider: Type.Optional(
-        Type.Union([
-          Type.Literal("jina"),
-          Type.Literal("native"),
-        ], {
-          description: "Fetch backend to use: jina (default, converts to markdown), native (direct fetch with HTML-to-text stripping)",
-        }),
+        Type.Union(
+          (["jina", "native", "firecrawl", "exa"] as const).map((p) => Type.Literal(p)),
+          {
+            description: "Fetch backend to use: jina (default, converts to markdown), native (direct fetch with HTML-to-text stripping), firecrawl (API key optional), exa (needs key, uses Contents API)",
+          },
+        ),
       ),
       extract: Type.Optional(
         Type.String({
@@ -510,7 +564,8 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       }
 
       const maxChars = clamp(params.max_chars ?? DEFAULT_FETCH_MAX_CHARS, 1000, MAX_FETCH_MAX_CHARS);
-      const provider: WebFetchProvider = (params.provider ?? await resolveDefaultFetchProvider(ctx.cwd)) as WebFetchProvider;
+      const fetchConfig = await loadWebToolsConfig(ctx.cwd);
+      const provider: WebFetchProvider = (params.provider ?? fetchConfig.defaultFetchProvider ?? "jina") as WebFetchProvider;
 
       try {
         const { text, source } = await fetchWithProvider(url, provider, signal);
@@ -567,20 +622,18 @@ export default function webToolsExtension(pi: ExtensionAPI) {
     promptSnippet: "Search the web and return structured results with sources.",
     promptGuidelines: [
       "Use web_search when you need to discover sources or find recent/external information.",
-      "Prefer provider='exa' for documentation and semantic research; use provider='brave' for general web search; use provider='searx' for self-hosted/privacy-oriented search.",
+      "Use provider='auto' for fallback across configured backends. Prefer exa/tavily for research, serper/brave/duckduckgo for general search, firecrawl for crawl-oriented results, and perplexity for answer-oriented research.",
       "Always cite the returned URLs when answering the user.",
     ],
     parameters: Type.Object({
       query: Type.String({ description: "Search query" }),
       provider: Type.Optional(
-        Type.Union([
-          Type.Literal("auto"),
-          Type.Literal("exa"),
-          Type.Literal("brave"),
-          Type.Literal("searx"),
-        ], {
-          description: "Search backend to use: auto (default), exa, brave, or searx",
-        }),
+        Type.Union(
+          WEB_SEARCH_PROVIDERS.map((p) => Type.Literal(p)),
+          {
+            description: `Search backend to use: ${WEB_SEARCH_PROVIDERS.join(", ")}`,
+          },
+        ),
       ),
       include_domains: Type.Optional(
         Type.Array(Type.String(), {
@@ -619,7 +672,8 @@ export default function webToolsExtension(pi: ExtensionAPI) {
         return fail("Use either include_domains or exclude_domains, not both in the same request");
       }
 
-      const provider = (params.provider ?? await resolveDefaultProvider(ctx.cwd)) as WebSearchProvider;
+      const config = await loadWebToolsConfig(ctx.cwd);
+      const provider = (params.provider ?? config.defaultProvider ?? "auto") as WebSearchProvider;
       const numResults = clamp(params.num_results ?? DEFAULT_SEARCH_RESULTS, 1, MAX_SEARCH_RESULTS);
       const includeDomains = params.include_domains?.map(normalizeDomain).filter(Boolean);
       const excludeDomains = params.exclude_domains?.map(normalizeDomain).filter(Boolean);
@@ -636,12 +690,25 @@ export default function webToolsExtension(pi: ExtensionAPI) {
         };
 
         if (provider !== "auto") {
-          searchResponse = await WEB_SEARCH_REGISTRY.run(provider, searchParams);
+          searchResponse = await WEB_SEARCH_REGISTRY.run(provider, {
+            ...searchParams,
+            backendConfig: config.backends?.[provider],
+          });
         } else {
+          const usableBackends = WEB_SEARCH_REGISTRY.enabledOrder(config.backends).filter(
+            (name) => {
+              const backend = WEB_SEARCH_REGISTRY.backends[name];
+              if (backend.requiresKey !== true) return true;
+              return !!resolveApiKey(config.backends?.[name], []);
+            },
+          );
           const errors: string[] = [];
-          for (const backend of WEB_SEARCH_BACKEND_ORDER) {
+          for (const backend of usableBackends) {
             try {
-              searchResponse = await WEB_SEARCH_REGISTRY.run(backend, searchParams);
+              searchResponse = await WEB_SEARCH_REGISTRY.run(backend, {
+                ...searchParams,
+                backendConfig: config.backends?.[backend],
+              });
               break;
             } catch (backendError) {
               errors.push(`${backend}: ${(backendError as Error).message}`);
@@ -649,7 +716,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
           }
 
           if (!searchResponse) {
-            throw new Error(`All web search providers failed (${errors.join("; ")})`);
+            throw new Error(`All configured web search providers failed (${errors.join("; ")})`);
           }
         }
 
@@ -668,7 +735,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
           resultCount: results.length,
           includeDomains,
           excludeDomains,
-          configuredDefaultProvider: await resolveDefaultProvider(ctx.cwd),
+          configuredDefaultProvider: config.defaultProvider ?? "auto",
         });
       } catch (error) {
         if ((error as Error).name === "AbortError") {
@@ -878,7 +945,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       const parts = trimmed.split(/\s+/).filter(Boolean);
       const endsWithSpace = /\s$/.test(trimmed);
       const root = ["status", "provider", "clear"];
-      const fetchProviders: WebFetchProvider[] = ["jina", "native"];
+      const fetchProviders: WebFetchProvider[] = ["jina", "native", "firecrawl", "exa"];
 
       if (!trimmed) return root.map((value) => ({ value, label: value }));
       if (parts.length <= 1 && !endsWithSpace) {
@@ -914,8 +981,8 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       const remainder = rest.join(" ").trim().toLowerCase();
 
       if (subcommand === "provider") {
-        if (remainder !== "jina" && remainder !== "native") {
-          throw new Error("Usage: /web_fetch provider <jina|native>");
+        if (remainder !== "jina" && remainder !== "native" && remainder !== "firecrawl" && remainder !== "exa") {
+          throw new Error("Usage: /web_fetch provider <jina|native|firecrawl|exa>");
         }
         const current = await loadWebToolsConfig(ctx.cwd);
         await saveWebToolsConfig(ctx.cwd, { ...current, defaultFetchProvider: remainder as WebFetchProvider });
@@ -935,7 +1002,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
         return;
       }
 
-      throw new Error("Usage: /web_fetch [status|provider <jina|native>|clear]");
+      throw new Error("Usage: /web_fetch [status|provider <jina|native|firecrawl|exa>|clear]");
     },
   });
 

@@ -1,5 +1,5 @@
-import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
-import { filterByDomains, truncate } from "./utils.ts";
+import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
+import { filterByDomains, resolveApiKey, truncate } from "./utils.ts";
 
 const BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
 
@@ -29,11 +29,12 @@ function buildBraveSnippet(result: BraveResult): string | undefined {
 }
 
 export const braveBackend: WebSearchBackend = {
-  name: "brave",
+  name: BACKEND_NAMES.brave,
   label: "Brave",
   description: "General web search using Brave Search API; good fallback for broad/current queries.",
+  requiresKey: true,
   async search(params) {
-    const apiKey = process.env.BRAVE_API_KEY;
+    const apiKey = resolveApiKey(params.backendConfig, ["BRAVE_API_KEY", "SEARCH_BRAVE_API_KEY"]);
     if (!apiKey) {
       throw new Error("BRAVE_API_KEY not set");
     }
