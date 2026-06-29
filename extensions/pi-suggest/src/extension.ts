@@ -14,7 +14,7 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Container, fuzzyFilter, Input, Spacer, Text } from "@earendil-works/pi-tui";
-import { createUiColors } from "@aldoborrero/pi-common";
+import { createUiColors, getRegisteredEditorDecorators, isEditorRegistryInstalled, registerEditorDecorator } from "@aldoborrero/pi-common";
 import { SuggestEditor } from "./editor";
 import { once } from "./once.ts";
 
@@ -72,6 +72,7 @@ interface SuggestState {
   lastAssistantContentKind: string | null;
   lastAssistantContentPreview: string | null;
   generationId: number;
+  miniMode: boolean;
 }
 
 function filterSuggestion(raw: string | null): { suggestion: string | null; reason: string | null } {
@@ -162,6 +163,90 @@ function extractJsonArrayText(raw: string): string | null {
   const end = text.lastIndexOf("]");
   if (start === -1 || end === -1 || end < start) return null;
   return text.slice(start, end + 1);
+}
+
+function truncate(input: string, maxChars: number): string {
+  if (input.length <= maxChars) return input;
+  return `${input.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
+function isAssistantMessage(message: AgentMessage): boolean {
+  return (message as { role?: unknown }).role === "assistant";
+}
+
+function isUserMessage(message: AgentMessage): boolean {
+  return (message as { role?: unknown }).role === "user";
+}
+
+function getMessageContent(message: AgentMessage): unknown {
+  return (message as { content?: unknown }).content;
+}
+
+function extractText(message: AgentMessage): string {
+  const content = getMessageContent(message);
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const candidate = block as { type?: unknown; text?: unknown; content?: unknown };
+      if (candidate.type === "text" && typeof candidate.text === "string") return candidate.text;
+      if (typeof candidate.text === "string") return candidate.text;
+      if (typeof candidate.content === "string") return candidate.content;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function safeGetAvailableModels(modelRegistry: ExtensionContext["modelRegistry"]): Model<any>[] {
+  try {
+    const available = modelRegistry.getAvailable();
+    if (available.length > 0) return available as Model<any>[];
+  } catch {
+    // Fall back to all models below.
+  }
+  try {
+    return modelRegistry.getAll() as Model<any>[];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeMessageText(message: AgentMessage, maxChars: number): string {
+  return truncate(extractText(message).replace(/\s+/g, " ").trim(), maxChars);
+}
+
+function buildTurnKey(messages: AgentMessage[]): string {
+  return messages
+    .slice(-MAX_CONTEXT_MESSAGES)
+    .map((message) => `${(message as { role?: unknown }).role ?? "unknown"}:${normalizeMessageText(message, 80)}`)
+    .join("|");
+}
+
+function buildSuggestionInput(messages: AgentMessage[], cwd: string): string | null {
+  const relevant = messages
+    .filter((message) => isUserMessage(message) || isAssistantMessage(message))
+    .slice(-MAX_CONTEXT_MESSAGES);
+  if (relevant.length === 0) return null;
+
+  const lines = [
+    `Project: ${cwd}`,
+    "Recent conversation:",
+  ];
+
+  for (const message of relevant) {
+    const role = (message as { role?: unknown }).role === "assistant" ? "assistant" : "user";
+    const limit = role === "assistant" ? MAX_ASSISTANT_CHARS : MAX_USER_CHARS;
+    const text = normalizeMessageText(message, limit);
+    if (!text) continue;
+    lines.push(`${role}: ${text}`);
+  }
+
+  if (lines.length <= 2) return null;
+  lines.push("Predict the user's next message as a JSON array.");
+  return lines.join("\n");
 }
 
 type SuggestJsonConfig = {
@@ -597,6 +682,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
 
   // Active generation session — aborted when a new generation starts or suggest is cleared.
   let activeSession: { abort(): Promise<void>; dispose(): void } | null = null;
+  let unregisterEditorDecorator: (() => void) | undefined;
 
   async function abortActiveSession(): Promise<void> {
     if (!activeSession) return;
@@ -632,8 +718,10 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   function installEditor(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
     lastUIContext = ctx;
-    ctx.ui.setEditorComponent((tui, theme, kb) => {
-      const editor = new SuggestEditor(tui, theme, kb);
+
+    unregisterEditorDecorator?.();
+    unregisterEditorDecorator = registerEditorDecorator(ctx, "pi-suggest", (inner, tui) => {
+      const editor = new SuggestEditor(inner, tui);
       editor.setEnabled(state.enabled);
       editor.setSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
       editor.setOnAcceptSuggestion(() => {
@@ -650,7 +738,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       });
       editorRef = editor;
       return editor;
-    });
+    }, { order: 10 });
   }
 
   function clearSuggestion(ctx?: ExtensionContext, options?: { preserveDiagnostics?: boolean }): void {
@@ -680,11 +768,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       ctx.ui.setWidget(WIDGET_ID, undefined);
       ctx.ui.setStatus(STATUS_ID, undefined);
     }
-    }
-  
-  });
-}
-
+  }
 
   function renderSuggestion(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
@@ -735,7 +819,8 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       ctx.ui.setWidget(WIDGET_ID, widgetLines);
     }
 
-    ctx.ui.setStatus(STATUS_ID, colors.primary("suggest:on"));
+    ctx.ui.setStatus(STATUS_ID, colors.primary(state.miniMode ? "󰌶 mini" : "󰌶"));
+  }
 
   pi.on("session_start", async (_event, ctx) => {
     installEditor(ctx);
@@ -751,6 +836,9 @@ export default function suggestExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async () => {
     await abortActiveSession();
+    unregisterEditorDecorator?.();
+    unregisterEditorDecorator = undefined;
+    editorRef = null;
   });
 
   pi.on("agent_start", async (_event, ctx) => {
@@ -878,7 +966,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       const trimmed = prefix.trimStart();
       const parts = trimmed.split(/\s+/).filter(Boolean);
       const endsWithSpace = /\s$/.test(trimmed);
-      const root = ["on", "off", "status", "debug", "model"];
+      const root = ["on", "off", "status", "debug", "model", "mini", "test"];
 
       if (!trimmed) {
         return root.map((value) => ({ value, label: value }));
@@ -909,6 +997,15 @@ export default function suggestExtension(pi: ExtensionAPI): void {
           : null;
       }
 
+      if (first === "mini") {
+        const values = ["on", "off"];
+        const subPrefix = parts.length <= 1 || endsWithSpace ? "" : (parts[parts.length - 1] ?? "").toLowerCase();
+        const filtered = values.filter((value) => value.startsWith(subPrefix));
+        return filtered.length > 0
+          ? filtered.map((value) => ({ value: `mini ${value}`, label: value }))
+          : null;
+      }
+
       return null;
     },
     handler: async (args, ctx) => {
@@ -928,6 +1025,9 @@ export default function suggestExtension(pi: ExtensionAPI): void {
             `Mini mode: ${state.miniMode ? "on" : "off"}`, 
             `Suggestions: ${state.suggestions.length > 0 ? state.suggestions.join(" | ") : "none"}`,
             `Selected suggestion: ${getSelectedSuggestion() ?? "none"}`,
+            `Editor wrapper: ${editorRef ? "created" : "not-created-yet"}`,
+            `Editor registry: ${ctx.hasUI && isEditorRegistryInstalled(ctx) ? "installed" : "not-installed"}`,
+            `Editor decorators: ${getRegisteredEditorDecorators(ctx).join(" -> ") || "none"}`,
             `Generating: ${state.generating ? "yes" : "no"}`,
             `Last generation status: ${state.lastGenerationStatus ?? "none"}`,
             `Last raw suggestion: ${state.lastRawSuggestion ?? "none"}`,
@@ -943,6 +1043,20 @@ export default function suggestExtension(pi: ExtensionAPI): void {
           ].join("\n"),
           "info",
         );
+        return;
+      }
+
+      if (sub === "test") {
+        state.suggestions = ["continue", "run tests", "show status"];
+        state.selectedSuggestionIndex = 0;
+        state.sourceTurnKey = "manual-test";
+        state.generating = false;
+        state.lastGenerationStatus = "ready";
+        state.lastRawSuggestion = JSON.stringify(state.suggestions);
+        state.lastFilterReason = null;
+        syncEditor();
+        renderSuggestion(ctx);
+        ctx.ui.notify("Suggest test suggestions injected. Empty the editor, then use Tab/→ or Alt+↑↓.", "info");
         return;
       }
 
@@ -1082,5 +1196,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       else renderSuggestion(ctx);
       ctx.ui.notify(`Suggest ${state.enabled ? "enabled" : "disabled"}`, "info");
     },
+  });
   });
 }

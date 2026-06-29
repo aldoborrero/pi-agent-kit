@@ -1,13 +1,13 @@
 # voice
 
-Walkie-talkie style speech-to-text input for pi-coding-agent. Hold Space to record, release to transcribe. Multiple STT backends, configurable language, and project context hints for coding vocabulary recognition.
+Walkie-talkie style speech-to-text input for pi-coding-agent. Hold Space to record, release to transcribe when the terminal supports key-release events; otherwise use `/voice` to toggle. Multiple STT backends, configurable language, and project context hints for coding vocabulary recognition.
 
 ## Hold-Space-to-Record
 
 The custom voice editor uses a **walkie-talkie** interaction model:
 
 1. **Tap Space** — inserts a normal space character (no delay, normal typing).
-2. **Hold Space** (past ~350ms) — recording starts, and a `● REC` indicator appears in the editor border.
+2. **Hold Space** (past ~1.2s) — recording starts, and a `● REC` indicator appears in the editor border.
 3. **Recording stays active while Space is held down.**
 4. **Release Space** — stops recording and transcribes.
 5. The transcribed text is inserted at the cursor position for review.
@@ -17,7 +17,7 @@ The space character is **not** inserted on press — it's only inserted on relea
 
 **Typing cooldown:** if the user typed any non-space key within the last 400ms, Space is treated as normal input, not a hold candidate. This prevents accidental recording during fast typing.
 
-**Kitty keyboard protocol required.** Without it, all input passes through untouched so normal typing never breaks — hold-to-talk is simply unavailable.
+**Kitty keyboard protocol required for Hold Space.** Without it, all input passes through untouched so normal typing never breaks — hold-to-talk is unavailable, but `/voice` still toggles recording.
 
 ## Commands
 
@@ -97,10 +97,11 @@ Not needed when using the daemon provider (daemon handles audio capture).
 
 ## Features
 
-- **Walkie-talkie recording** — hold Space to record, release to transcribe
+- **Walkie-talkie recording** — hold Space to record, release to transcribe when key-release events are available
+- **Toggle recording** — `/voice` works even when Hold Space is unavailable
 - **Deferred space insertion** — space is not inserted on press; only on release if it was a tap, never if it was a hold
 - **Typing cooldown** — Space after recent typing is normal input, not a hold candidate
-- **Kitty-only safety gate** — without Kitty keyboard protocol, all input passes through untouched
+- **Kitty-only safety gate for Hold Space** — without Kitty keyboard protocol, all Space input passes through untouched
 - **Persistent config** — provider, language, and mode saved to `~/.pi/agent/settings.json` under `voice`
 - **Interactive settings** — `/voice config` opens a navigable settings panel
 - **Tab completion** — `/voice [tab]` shows available subcommands

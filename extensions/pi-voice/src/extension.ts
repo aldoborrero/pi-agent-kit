@@ -5,7 +5,7 @@
  * (Groq / OpenAI) or a local daemon, and pastes or sends the result.
  *
  * Usage:
- *   Hold Space  — hold to record, release to stop & transcribe
+ *   Hold Space        — hold to record, release to stop & transcribe (requires Kitty keyboard protocol)
  *   /voice            — toggle recording
  *   /voice config     — open interactive settings panel
  *   /voice cancel     — cancel active recording
@@ -22,8 +22,8 @@
 
 import { join } from "node:path";
 import { DynamicBorder, SettingsManager, getAgentDir, getSettingsListTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createUiColors } from "@aldoborrero/pi-common";
-import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
+import { createUiColors, registerEditorDecorator } from "@aldoborrero/pi-common";
+import { Container, type SettingItem, SettingsList, Text, isKittyProtocolActive } from "@earendil-works/pi-tui";
 import { createProvider, detectProvider, type ProviderName, type STTProvider } from "./providers.js";
 import { DaemonRecorder, type Recorder, SpawnRecorder } from "./recorder.js";
 import { VoiceEditor } from "./voice-editor.js";
@@ -113,6 +113,7 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	// ─── Voice editor integration ──────────────────────────────────
 	let voiceEditor: VoiceEditor | null = null;
 	let currentCtx: ExtensionContext | null = null;
+	let unregisterEditorDecorator: (() => void) | undefined;
 	/** Tracks whether recording was triggered by the editor (space-hold). */
 	let editorInitiatedRecording = false;
 
@@ -156,6 +157,10 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		return LEVEL_BARS.slice(0, idx + 1);
 	}
 
+	function holdSpaceAvailable(): boolean {
+		return isKittyProtocolActive();
+	}
+
 	function updateStatus(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
 		const colors = createUiColors(ctx.ui.theme);
@@ -165,7 +170,7 @@ export default function voiceExtension(pi: ExtensionAPI) {
 				// Show provider name quietly in footer — no popup
 				ctx.ui.setStatus(
 					"voice",
-					providerName ? colors.meta(`voice:${providerName}`) : undefined,
+					providerName ? colors.meta(`󰍬 ${providerName}`) : undefined,
 				);
 				break;
 			case "starting":
@@ -178,14 +183,14 @@ export default function voiceExtension(pi: ExtensionAPI) {
 					: "";
 				ctx.ui.setStatus(
 					"voice",
-					colors.success("●") + " REC" + bars,
+					colors.success("󰍬") + " REC" + bars,
 				);
 				break;
 			}
 			case "transcribing":
 				ctx.ui.setStatus(
 					"voice",
-					colors.warning("●") + " transcribing…",
+					colors.warning("󰍬") + " transcribing…",
 				);
 				break;
 		}
@@ -194,7 +199,7 @@ export default function voiceExtension(pi: ExtensionAPI) {
 	function showError(ctx: ExtensionContext, msg: string): void {
 		if (!ctx.hasUI) return;
 		const colors = createUiColors(ctx.ui.theme);
-		ctx.ui.setStatus("voice", colors.danger("●") + " " + msg);
+		ctx.ui.setStatus("voice", colors.danger("󰍬") + " " + msg);
 		setTimeout(() => {
 			if (state === "idle") {
 				ctx.ui.setStatus("voice", undefined);
@@ -486,12 +491,13 @@ export default function voiceExtension(pi: ExtensionAPI) {
 
 				case "status": {
 					const lines = [
-						`Provider : ${providerName ?? "none (run /voice config)"}`,
-						`Language : ${config.lang}`,
-						`Mode     : ${config.mode}`,
-						`State    : ${state}`,
-						`Recorder : ${recorder?.constructor.name ?? "none"}`,
-						`Config   : ${getSettingsPath()}#${VOICE_SETTINGS_KEY}`,
+						`Provider   : ${providerName ?? "none (run /voice config)"}`,
+						`Language   : ${config.lang}`,
+						`Mode       : ${config.mode}`,
+						`State      : ${state}`,
+						`Recorder   : ${recorder?.constructor.name ?? "none"}`,
+						`Hold Space : ${holdSpaceAvailable() ? "available" : "unavailable (terminal is not sending key-release events)"}`,
+						`Config     : ${getSettingsPath()}#${VOICE_SETTINGS_KEY}`,
 					];
 					if (ctx.hasUI) ctx.ui.notify(lines.join("\n"), "info");
 					break;
@@ -537,30 +543,29 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		// Init provider: prefer persisted choice, fall back to env-var auto-detect
 		initProvider(saved.provider);
 
-		// ── Register the VoiceEditor (hold-Space-to-record) ──────────
-		if (ctx.mode === "tui" && ctx.hasUI) {
-			ctx.ui.setEditorComponent((tui, theme, kb) => {
-				voiceEditor = new VoiceEditor(tui, theme, kb);
+		// ── Register editor decorator. pi-common composes this with other editor extensions. ──
+		unregisterEditorDecorator?.();
+		unregisterEditorDecorator = registerEditorDecorator(ctx, "pi-voice", (inner, tui) => {
+			voiceEditor = new VoiceEditor(inner, tui);
 
-				voiceEditor.setCallbacks({
-					onStartRecording: () => {
-						editorInitiatedRecording = true;
-						if (currentCtx) return startRecording(currentCtx);
-						return false;
-					},
-					onStopRecording: () => {
-						if (currentCtx) stopAndTranscribe(currentCtx);
-					},
-					onCancelRecording: () => {
-						editorInitiatedRecording = false;
-						if (currentCtx) cancelRecording(currentCtx);
-						if (currentCtx?.hasUI) currentCtx.ui.notify("Recording cancelled", "info");
-					},
-				});
-
-				return voiceEditor;
+			voiceEditor.setCallbacks({
+				onStartRecording: () => {
+					editorInitiatedRecording = true;
+					if (currentCtx) return startRecording(currentCtx);
+					return false;
+				},
+				onStopRecording: () => {
+					if (currentCtx) stopAndTranscribe(currentCtx);
+				},
+				onCancelRecording: () => {
+					editorInitiatedRecording = false;
+					if (currentCtx) cancelRecording(currentCtx);
+					if (currentCtx?.hasUI) currentCtx.ui.notify("Recording cancelled", "info");
+				},
 			});
-		}
+
+			return voiceEditor;
+		}, { order: 20 });
 
 		// Show provider quietly in footer — no popup
 		updateStatus(ctx);
@@ -570,7 +575,9 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		if (state === "recording") cancelRecording(ctx);
 		clearLevelInterval();
 
-		// Dispose the voice editor
+		// Dispose voice wrapper and unregister from the shared editor registry.
+		unregisterEditorDecorator?.();
+		unregisterEditorDecorator = undefined;
 		voiceEditor?.dispose?.();
 		voiceEditor = null;
 		currentCtx = null;

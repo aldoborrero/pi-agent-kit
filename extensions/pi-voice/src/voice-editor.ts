@@ -1,26 +1,12 @@
 /**
- * VoiceEditor — CustomEditor with walkie-talkie style hold-Space-to-record.
+ * VoiceEditor — editor wrapper/decorator with hold-Space-to-record.
  *
- * Adapted from the pi-whisper-voice state machine by kengbailey, with
- * our multi-provider architecture.
- *
- * Behaviour:
- *   - Tap Space (quick press + release): inserts a single space character.
- *   - Hold Space (press + hold past threshold): recording starts.
- *     The space is NOT inserted on press — it's only inserted on release
- *     if the hold threshold was not reached. This avoids the insert-then-delete
- *     pattern that can lose a space if recording fails to start.
- *   - Recording stays active while Space is held down.
- *   - Release Space: stops recording → transcribes → inserts text at cursor.
- *   - Escape during recording: cancels.
- *   - If the user was typing recently (within typingCooldownMs), Space is
- *     treated as normal input, not a hold candidate.
- *
- * Requires Kitty keyboard protocol for key-release detection. Without it,
- * all input passes through untouched so normal typing never breaks.
+ * This does not replace the base editor implementation. Instead it wraps an
+ * existing EditorComponent and intercepts only the Space hold/release state
+ * machine, delegating all normal editing behavior to the wrapped editor.
+ * This lets pi-voice coexist with other editor extensions (e.g. Oracle).
  */
 
-import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import {
 	decodeKittyPrintable,
 	isKeyRelease,
@@ -29,18 +15,16 @@ import {
 	matchesKey,
 	truncateToWidth,
 	visibleWidth,
+	type AutocompleteProvider,
+	type EditorComponent,
+	type TUI,
 } from "@earendil-works/pi-tui";
-
-
-// ─── Timing constants ──────────────────────────────────────────────
 
 /** How long the user must hold Space before recording starts (ms). */
 const HOLD_THRESHOLD_MS = 1200;
 
 /** Space pressed within this window after other typing is normal input. */
 const TYPING_COOLDOWN_MS = 400;
-
-// ─── VoiceEditor ───────────────────────────────────────────────────
 
 export interface VoiceEditorCallbacks {
 	/** Called when the user holds Space long enough to start recording. */
@@ -51,127 +35,223 @@ export interface VoiceEditorCallbacks {
 	onCancelRecording: () => void;
 }
 
-export class VoiceEditor extends CustomEditor {
+export class VoiceEditor implements EditorComponent {
 	private callbacks: VoiceEditorCallbacks | null = null;
-
-	// ── Space-hold state ──
-	/** Timestamp of the last non-space typing, for cooldown detection. */
 	private lastTypingTime = 0;
-	/** Space is currently held down (press received, no release yet). */
 	private spaceDownAt = 0;
-	/** Timer that fires when the hold threshold is reached. */
 	private holdTimer: ReturnType<typeof setTimeout> | null = null;
-
-	/** Whether recording is currently active (space held past threshold). */
 	private recordingActive = false;
 
-	/** Set callbacks for recording lifecycle. */
+	// Expose CustomEditor's duck-typed app-keybinding surface so the host can wire
+	// global actions even though this editor is now a wrapper.
+	public actionHandlers: Map<string, () => void> = new Map();
+	public onEscape?: () => void;
+	public onCtrlD?: () => void;
+	public onPasteImage?: () => void;
+	public onExtensionShortcut?: (data: string) => boolean;
+
+	constructor(
+		private readonly inner: EditorComponent,
+		private readonly tui: TUI,
+	) {}
+
+	// ─── EditorComponent plumbing / delegation ──────────────────────
+
+	get wantsKeyRelease(): boolean {
+		return isKittyProtocolActive() || this.inner.wantsKeyRelease === true;
+	}
+
+	get focused(): boolean {
+		return (this.inner as unknown as { focused?: boolean }).focused ?? false;
+	}
+
+	set focused(value: boolean) {
+		(this.inner as unknown as { focused?: boolean }).focused = value;
+	}
+
+	get onSubmit(): ((text: string) => void) | undefined {
+		return this.inner.onSubmit;
+	}
+
+	set onSubmit(handler: ((text: string) => void) | undefined) {
+		this.inner.onSubmit = handler;
+	}
+
+	get onChange(): ((text: string) => void) | undefined {
+		return this.inner.onChange;
+	}
+
+	set onChange(handler: ((text: string) => void) | undefined) {
+		this.inner.onChange = handler;
+	}
+
+	get borderColor(): ((str: string) => string) | undefined {
+		return this.inner.borderColor;
+	}
+
+	set borderColor(fn: ((str: string) => string) | undefined) {
+		this.inner.borderColor = fn;
+	}
+
+	getText(): string {
+		return this.inner.getText();
+	}
+
+	getExpandedText(): string {
+		return this.inner.getExpandedText?.() ?? this.inner.getText();
+	}
+
+	setText(text: string): void {
+		this.inner.setText(text);
+	}
+
+	addToHistory(text: string): void {
+		this.inner.addToHistory?.(text);
+	}
+
+	insertTextAtCursor(text: string): void {
+		if (this.inner.insertTextAtCursor) {
+			this.inner.insertTextAtCursor(text);
+			return;
+		}
+		// Fallback for a custom editor that does not expose cursor insertion.
+		this.inner.setText(`${this.inner.getText()}${text}`);
+	}
+
+	setAutocompleteProvider(provider: AutocompleteProvider): void {
+		this.inner.setAutocompleteProvider?.(provider);
+	}
+
+	setPaddingX(padding: number): void {
+		this.inner.setPaddingX?.(padding);
+	}
+
+	setAutocompleteMaxVisible(maxVisible: number): void {
+		this.inner.setAutocompleteMaxVisible?.(maxVisible);
+	}
+
+	invalidate(): void {
+		this.inner.invalidate();
+	}
+
+	isShowingAutocomplete(): boolean {
+		return (this.inner as unknown as { isShowingAutocomplete?: () => boolean }).isShowingAutocomplete?.() ?? false;
+	}
+
+	render(width: number): string[] {
+		const lines = this.inner.render(width);
+		if (lines.length === 0) return lines;
+
+		if (this.recordingActive) {
+			const label = " \x1b[31m● REC\x1b[0m ";
+			const last = lines.length - 1;
+			if (visibleWidth(lines[last]!) >= visibleWidth(label)) {
+				lines[last] = truncateToWidth(lines[last]!, width - visibleWidth(label), "") + label;
+			}
+		}
+
+		return lines;
+	}
+
+	// ─── Voice lifecycle API ────────────────────────────────────────
+
 	setCallbacks(callbacks: VoiceEditorCallbacks): void {
 		this.callbacks = callbacks;
 	}
 
-	/** Whether the editor is currently in recording mode. */
 	isRecording(): boolean {
 		return this.recordingActive;
 	}
 
-	/**
-	 * Insert transcribed text at the cursor position.
-	 */
 	insertTranscription(text: string): void {
 		const trimmed = text.trim();
 		if (!trimmed) return;
-
 		this.insertTextAtCursor(trimmed);
 		this.tui.requestRender();
 	}
 
-	// ─── Input handling ────────────────────────────────────────────
+	/** Clear recording/hold state without triggering callbacks. */
+	forceClearRecording(): void {
+		this.recordingActive = false;
+		this.spaceDownAt = 0;
+		this.clearHoldTimer();
+		this.tui.requestRender();
+	}
 
-	override handleInput(data: string): void {
-		// ── Key release events are never text input. Consume them. ──
+	dispose(): void {
+		this.forceClearRecording();
+		(this.inner as unknown as { dispose?: () => void }).dispose?.();
+	}
+
+	// ─── Input interception ─────────────────────────────────────────
+
+	handleInput(data: string): void {
+		this.syncCustomEditorHooks();
+
+		// Release events are never text input. Consume Space release for voice;
+		// forward other release events only if the wrapped editor requested them.
 		if (isKeyRelease(data)) {
 			if (isKittyProtocolActive() && matchesKey(data, "space")) {
 				this.onSpaceRelease();
+				return;
 			}
+			if (this.inner.wantsKeyRelease) this.inner.handleInput(data);
 			return;
 		}
 
-		// ── Without Kitty protocol, hold-to-talk is not safe. ──
-		// Pass all input through untouched so normal SPACE typing works.
+		// Without Kitty protocol, hold-to-talk is not safe. Preserve the wrapped
+		// editor exactly.
 		if (!isKittyProtocolActive()) {
-			super.handleInput(data);
+			this.inner.handleInput(data);
 			return;
 		}
 
-		// ── Recording active: only Escape cancels, release stops ──
 		if (this.recordingActive) {
 			if (matchesKey(data, "escape")) {
 				this.cancelRecording();
 				return;
 			}
-			if (matchesKey(data, "space")) {
-				// Key repeat while recording — ignore (keep recording)
-				if (isKeyRepeat(data)) return;
-				// A new press while recording shouldn't happen (we haven't
-				// received a release), but if it does, ignore it.
-				return;
-			}
-			// Ignore other keys during recording
+			if (matchesKey(data, "space")) return;
 			return;
 		}
 
-		// ── Track non-space typing for cooldown ──
 		const printable = this.decodePrintable(data);
 		if (printable && printable !== " ") {
 			this.lastTypingTime = Date.now();
 		}
 
-		// ── Ignore space repeats while a hold is pending ──
 		if (isKeyRepeat(data)) {
 			if (matchesKey(data, "space") && this.spaceDownAt > 0) return;
-			super.handleInput(data);
+			this.inner.handleInput(data);
 			return;
 		}
 
-		// ── Space hold detection ──
 		if (matchesKey(data, "space")) {
 			this.onSpacePress(data);
 			return;
 		}
 
-		// ── Non-space key while holding space: commit pending space, pass through ──
 		if (this.spaceDownAt > 0) {
 			this.cancelPendingSpace();
-			// Insert the pending space as ordinary input
-			super.handleInput(" ");
+			this.inner.handleInput(" ");
 		}
 
-		super.handleInput(data);
+		this.inner.handleInput(data);
 	}
 
-	// ─── Space-hold state machine ──────────────────────────────────
-
 	private onSpacePress(data: string): void {
-		// Already tracking a space press — ignore
 		if (this.spaceDownAt > 0) return;
 
 		const now = Date.now();
-
-		// Typing cooldown: if user typed recently, treat space as normal input
 		if (now - this.lastTypingTime < TYPING_COOLDOWN_MS) {
-			super.handleInput(data);
+			this.inner.handleInput(data);
 			return;
 		}
 
-		// Start tracking the hold. Do NOT insert the space yet — it will be
-		// inserted on release if the hold threshold was not reached.
 		this.spaceDownAt = now;
 		this.holdTimer = setTimeout(() => {
 			this.holdTimer = null;
-			if (this.spaceDownAt > 0) {
-				void this.triggerRecording();
-			}
+			if (this.spaceDownAt > 0) void this.triggerRecording();
 		}, HOLD_THRESHOLD_MS);
 	}
 
@@ -182,64 +262,38 @@ export class VoiceEditor extends CustomEditor {
 		this.spaceDownAt = 0;
 		this.clearHoldTimer();
 
-		// Released before threshold: ordinary single space tap.
 		if (!this.recordingActive && heldMs < HOLD_THRESHOLD_MS) {
-			super.handleInput(" ");
+			this.inner.handleInput(" ");
 			return;
 		}
 
-		// Recording is active: stop and transcribe
-		if (this.recordingActive) {
-			this.stopRecording();
-			return;
-		}
+		if (this.recordingActive) this.stopRecording();
 	}
 
-	// ─── Recording lifecycle ───────────────────────────────────────
-
-	/**
-	 * Called when the hold threshold is reached. Enters recording mode.
-	 * If start fails, aborts recording mode immediately.
-	 */
 	private async triggerRecording(): Promise<void> {
 		this.recordingActive = true;
 		this.tui.requestRender();
 
-		// If start fails, abort recording mode immediately
 		if (this.callbacks && !this.callbacks.onStartRecording()) {
 			this.forceClearRecording();
 		}
 	}
 
-	/** Clear all recording/hold state without triggering callbacks. */
-	forceClearRecording(): void {
-		this.recordingActive = false;
-		this.spaceDownAt = 0;
-		this.clearHoldTimer();
-		this.tui.requestRender();
-	}
-
-	/** Stop recording (Space released). Calls onStopRecording callback. */
 	private stopRecording(): void {
 		this.recordingActive = false;
 		this.spaceDownAt = 0;
 		this.clearHoldTimer();
 		this.tui.requestRender();
-
 		this.callbacks?.onStopRecording();
 	}
 
-	/** Cancel recording (Escape pressed). Calls onCancelRecording callback. */
 	private cancelRecording(): void {
 		this.recordingActive = false;
 		this.spaceDownAt = 0;
 		this.clearHoldTimer();
 		this.tui.requestRender();
-
 		this.callbacks?.onCancelRecording();
 	}
-
-	// ─── Helpers ───────────────────────────────────────────────────
 
 	private cancelPendingSpace(): void {
 		this.spaceDownAt = 0;
@@ -254,35 +308,27 @@ export class VoiceEditor extends CustomEditor {
 	}
 
 	private decodePrintable(data: string): string | undefined {
-		// Raw terminal printable input
 		if (data.length === 1 && data.charCodeAt(0) >= 32) return data;
-		// Kitty CSI-u printable decoder
 		return decodeKittyPrintable(data);
 	}
 
-	// ─── Rendering ─────────────────────────────────────────────────
+	private syncCustomEditorHooks(): void {
+		const custom = this.inner as unknown as {
+			actionHandlers?: Map<string, () => void>;
+			onEscape?: () => void;
+			onCtrlD?: () => void;
+			onPasteImage?: () => void;
+			onExtensionShortcut?: (data: string) => boolean;
+		};
 
-	override render(width: number): string[] {
-		const lines = super.render(width);
-		if (lines.length === 0) return lines;
-
-		// Show recording indicator in the bottom border
-		if (this.recordingActive) {
-			const label = " \x1b[31m● REC\x1b[0m ";
-			const last = lines.length - 1;
-			if (visibleWidth(lines[last]!) >= visibleWidth(label)) {
-				lines[last] = truncateToWidth(lines[last]!, width - visibleWidth(label), "") + label;
+		if (custom.actionHandlers instanceof Map) {
+			for (const [action, handler] of this.actionHandlers) {
+				custom.actionHandlers.set(action, handler);
 			}
 		}
-
-		return lines;
-	}
-
-	// ─── Cleanup ───────────────────────────────────────────────────
-
-	dispose(): void {
-		this.recordingActive = false;
-		this.spaceDownAt = 0;
-		this.clearHoldTimer();
+		if (this.onEscape) custom.onEscape = this.onEscape;
+		if (this.onCtrlD) custom.onCtrlD = this.onCtrlD;
+		if (this.onPasteImage) custom.onPasteImage = this.onPasteImage;
+		if (this.onExtensionShortcut) custom.onExtensionShortcut = this.onExtensionShortcut;
 	}
 }
