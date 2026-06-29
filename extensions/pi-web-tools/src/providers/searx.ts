@@ -80,6 +80,6 @@ export const searxBackend: WebSearchBackend = {
     results = dedupeByUrl(results);
     results = filterByDomains(results, params.includeDomains, params.excludeDomains);
 
-    return { provider: "searx", results: results.slice(0, params.numResults) };
+    return { provider: BACKEND_NAMES.searx, results: results.slice(0, params.numResults) };
   },
 };

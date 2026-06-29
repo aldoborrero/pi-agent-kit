@@ -23,7 +23,10 @@ const DEFAULT_SEARCH_RESULTS = 8;
 const MAX_SEARCH_RESULTS = 20;
 const EXTRACT_PROMPT_MAX_CHARS = 40_000;
 
-type WebFetchProvider = "jina" | "native" | "firecrawl" | "exa";
+const FETCH_PROVIDER_NAMES = ["jina", "native", "firecrawl", "exa"] as const;
+type WebFetchProvider = (typeof FETCH_PROVIDER_NAMES)[number];
+
+const FETCH_PROVIDERS = [...FETCH_PROVIDER_NAMES] as string[];
 
 type WebToolsConfig = {
   defaultProvider?: WebSearchProvider;
@@ -354,7 +357,7 @@ function normalizeWebToolsConfig(raw: unknown): WebToolsConfig {
     config.defaultProvider = candidate as WebSearchProvider;
   }
   const fetchCandidate = raw.defaultFetchProvider ?? raw.reader;
-  if (typeof fetchCandidate === "string" && ["jina", "native", "firecrawl", "exa"].includes(fetchCandidate)) {
+  if (typeof fetchCandidate === "string" && FETCH_PROVIDERS.includes(fetchCandidate)) {
     config.defaultFetchProvider = fetchCandidate as WebFetchProvider;
   }
   config.backends = normalizeBackends(raw.backends);
@@ -482,15 +485,15 @@ async function fetchWithProvider(
   provider: WebFetchProvider,
   signal?: AbortSignal,
 ): Promise<{ text: string; source: string }> {
-  if (provider === "native") {
+  if (provider === FETCH_PROVIDER_NAMES[1]) {  // native
     const { text, contentType } = await nativeFetchHtml(url, signal);
     const isHtml = contentType.includes("text/html") || contentType.includes("application/xhtml");
-    return { text: isHtml ? stripHtmlToText(text) : text, source: "native" };
+    return { text: isHtml ? stripHtmlToText(text) : text, source: FETCH_PROVIDER_NAMES[1] };
   }
-  if (provider === "firecrawl") {
+  if (provider === FETCH_PROVIDER_NAMES[2]) {  // firecrawl
     return await fetchFirecrawl(url, signal);
   }
-  if (provider === "exa") {
+  if (provider === FETCH_PROVIDER_NAMES[3]) {  // exa
     return await fetchExaContents(url, signal);
   }
 
@@ -505,7 +508,7 @@ async function fetchWithProvider(
     throw new Error(`Jina fetch failed: ${response.status} ${response.statusText}`);
   }
 
-  return { text: await response.text(), source: "jina" };
+  return { text: await response.text(), source: FETCH_PROVIDER_NAMES[0] };
 }
 
 const WEB_SEARCH_REGISTRY = createWebSearchRegistry();
@@ -536,7 +539,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       url: Type.String({ description: "The URL to fetch (http/https only)" }),
       provider: Type.Optional(
         Type.Union(
-          (["jina", "native", "firecrawl", "exa"] as const).map((p) => Type.Literal(p)),
+          (FETCH_PROVIDER_NAMES as readonly string[]).map((p) => Type.Literal(p)),
           {
             description: "Fetch backend to use: jina (default, converts to markdown), native (direct fetch with HTML-to-text stripping), firecrawl (API key optional), exa (needs key, uses Contents API)",
           },
@@ -565,7 +568,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
 
       const maxChars = clamp(params.max_chars ?? DEFAULT_FETCH_MAX_CHARS, 1000, MAX_FETCH_MAX_CHARS);
       const fetchConfig = await loadWebToolsConfig(ctx.cwd);
-      const provider: WebFetchProvider = (params.provider ?? fetchConfig.defaultFetchProvider ?? "jina") as WebFetchProvider;
+      const provider: WebFetchProvider = (params.provider ?? fetchConfig.defaultFetchProvider ?? FETCH_PROVIDER_NAMES[0]) as WebFetchProvider;
 
       try {
         const { text, source } = await fetchWithProvider(url, provider, signal);
@@ -945,7 +948,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       const parts = trimmed.split(/\s+/).filter(Boolean);
       const endsWithSpace = /\s$/.test(trimmed);
       const root = ["status", "provider", "clear"];
-      const fetchProviders: WebFetchProvider[] = ["jina", "native", "firecrawl", "exa"];
+      const fetchProviders = FETCH_PROVIDERS as WebFetchProvider[];
 
       if (!trimmed) return root.map((value) => ({ value, label: value }));
       if (parts.length <= 1 && !endsWithSpace) {
@@ -965,7 +968,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       const configPath = resolveWebToolsConfigPath(ctx.cwd);
       if (!trimmed || trimmed === "status") {
         const config = await loadWebToolsConfig(ctx.cwd);
-        const fetchProvider = config.defaultFetchProvider ?? "jina";
+        const fetchProvider = config.defaultFetchProvider ?? FETCH_PROVIDER_NAMES[0];
         const searchProvider = config.defaultProvider ?? "auto";
         ctx.ui.notify([
           "web_tools config",
@@ -981,8 +984,8 @@ export default function webToolsExtension(pi: ExtensionAPI) {
       const remainder = rest.join(" ").trim().toLowerCase();
 
       if (subcommand === "provider") {
-        if (remainder !== "jina" && remainder !== "native" && remainder !== "firecrawl" && remainder !== "exa") {
-          throw new Error("Usage: /web_fetch provider <jina|native|firecrawl|exa>");
+        if (!FETCH_PROVIDERS.includes(remainder)) {
+          throw new Error(`Usage: /web_fetch provider <${FETCH_PROVIDERS.join("|")}>`);
         }
         const current = await loadWebToolsConfig(ctx.cwd);
         await saveWebToolsConfig(ctx.cwd, { ...current, defaultFetchProvider: remainder as WebFetchProvider });
@@ -1002,7 +1005,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
         return;
       }
 
-      throw new Error("Usage: /web_fetch [status|provider <jina|native|firecrawl|exa>|clear]");
+      throw new Error(`Usage: /web_fetch [status|provider <${FETCH_PROVIDERS.join("|")}>|clear]`);
     },
   });
 

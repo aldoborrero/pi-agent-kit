@@ -56,6 +56,6 @@ export const perplexityBackend: WebSearchBackend = {
         snippet: answer ? truncate(answer.replace(/\s+/g, " "), 320).text : undefined,
       }];
     results = filterByDomains(results, params.includeDomains, params.excludeDomains);
-    return { provider: `perplexity:${model}`, results: results.slice(0, params.numResults) };
+    return { provider: `${BACKEND_NAMES.perplexity}:${model}`, results: results.slice(0, params.numResults) };
   },
 };

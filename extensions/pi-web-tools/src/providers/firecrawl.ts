@@ -47,7 +47,7 @@ export async function fetchFirecrawl(url: URL, signal?: AbortSignal): Promise<{ 
   const data = (await response.json()) as FirecrawlScrapeResponse;
   const text = data.data?.markdown || data.data?.html || "";
   if (!text.trim()) throw new Error(`Firecrawl returned no content for ${url.toString()}`);
-  return { text, source: "firecrawl" };
+  return { text, source: BACKEND_NAMES.firecrawl };
 }
 
 export const firecrawlBackend: WebSearchBackend = {
@@ -77,6 +77,6 @@ export const firecrawlBackend: WebSearchBackend = {
             : undefined,
       }));
     results = filterByDomains(results, params.includeDomains, params.excludeDomains);
-    return { provider: "firecrawl", results: results.slice(0, params.numResults) };
+    return { provider: BACKEND_NAMES.firecrawl, results: results.slice(0, params.numResults) };
   },
 };

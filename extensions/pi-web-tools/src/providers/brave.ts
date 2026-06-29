@@ -67,7 +67,7 @@ export const braveBackend: WebSearchBackend = {
       }));
 
     return {
-      provider: "brave",
+      provider: BACKEND_NAMES.brave,
       results: filterByDomains(results, params.includeDomains, params.excludeDomains),
     };
   },

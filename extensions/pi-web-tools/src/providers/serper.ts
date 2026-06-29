@@ -46,6 +46,6 @@ export const serperBackend: WebSearchBackend = {
         published: item.date,
       }));
     results = filterByDomains(results, params.includeDomains, params.excludeDomains);
-    return { provider: "serper", results: results.slice(0, params.numResults) };
+    return { provider: BACKEND_NAMES.serper, results: results.slice(0, params.numResults) };
   },
 };

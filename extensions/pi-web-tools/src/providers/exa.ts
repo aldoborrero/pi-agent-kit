@@ -37,7 +37,7 @@ export async function fetchExaContents(url: URL, signal?: AbortSignal): Promise<
   const data = (await response.json()) as { results?: Array<{ text?: string; title?: string; url?: string }> };
   const text = data.results?.[0]?.text ?? "";
   if (!text.trim()) throw new Error(`Exa contents returned no content for ${url.toString()}`);
-  return { text, source: "exa" };
+  return { text, source: BACKEND_NAMES.exa };
 }
 
 export const exaBackend: WebSearchBackend = {
@@ -84,7 +84,7 @@ export const exaBackend: WebSearchBackend = {
       }));
 
     return {
-      provider: data.resolvedSearchType ? `exa:${data.resolvedSearchType}` : "exa",
+      provider: data.resolvedSearchType ? `${BACKEND_NAMES.exa}:${data.resolvedSearchType}` : BACKEND_NAMES.exa,
       results,
     };
   },

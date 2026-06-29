@@ -67,6 +67,6 @@ export const duckduckgoBackend: WebSearchBackend = {
 
     let results = parseDuckDuckGoHtml(await response.text(), params.numResults);
     results = filterByDomains(results, params.includeDomains, params.excludeDomains);
-    return { provider: "duckduckgo", results: results.slice(0, params.numResults) };
+    return { provider: BACKEND_NAMES.duckduckgo, results: results.slice(0, params.numResults) };
   },
 };

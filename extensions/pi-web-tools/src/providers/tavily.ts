@@ -54,6 +54,6 @@ export const tavilyBackend: WebSearchBackend = {
         published: item.published_date,
       }));
     results = filterByDomains(results, params.includeDomains, params.excludeDomains);
-    return { provider: "tavily", results: results.slice(0, params.numResults) };
+    return { provider: BACKEND_NAMES.tavily, results: results.slice(0, params.numResults) };
   },
 };
