@@ -17,6 +17,7 @@ import registerContext from "@aldoborrero/pi-context/src/extension.ts";
 import registerDiff from "@aldoborrero/pi-diff/src/extension.ts";
 import registerDirenv from "@aldoborrero/pi-direnv/src/extension.ts";
 import registerEdit from "@aldoborrero/pi-edit/src/extension.ts";
+import registerGithubSearch from "@aldoborrero/pi-github-search/src/extension.ts";
 import registerFooter from "@aldoborrero/pi-footer/src/extension.ts";
 import registerGitCheckpoint from "@aldoborrero/pi-git-checkpoint/src/extension.ts";
 import registerInlineBash from "@aldoborrero/pi-inline-bash/src/extension.ts";
@@ -47,6 +48,7 @@ const MEMBERS: Factory[] = [
 	registerDirenv,
 	registerEdit,
 	registerFooter,
+	registerGithubSearch,
 	registerGitCheckpoint,
 	registerInlineBash,
 	registerLoop,

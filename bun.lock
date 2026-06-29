@@ -36,6 +36,7 @@
         "@aldoborrero/pi-edit": "*",
         "@aldoborrero/pi-footer": "*",
         "@aldoborrero/pi-git-checkpoint": "*",
+        "@aldoborrero/pi-github-search": "*",
         "@aldoborrero/pi-inline-bash": "*",
         "@aldoborrero/pi-loop": "*",
         "@aldoborrero/pi-notify": "*",
@@ -185,6 +186,16 @@
     },
     "extensions/pi-git-checkpoint": {
       "name": "@aldoborrero/pi-git-checkpoint",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": "*",
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+      },
+    },
+    "extensions/pi-github-search": {
+      "name": "@aldoborrero/pi-github-search",
       "version": "1.0.0",
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
@@ -377,6 +388,8 @@
     "@aldoborrero/pi-footer": ["@aldoborrero/pi-footer@workspace:extensions/pi-footer"],
 
     "@aldoborrero/pi-git-checkpoint": ["@aldoborrero/pi-git-checkpoint@workspace:extensions/pi-git-checkpoint"],
+
+    "@aldoborrero/pi-github-search": ["@aldoborrero/pi-github-search@workspace:extensions/pi-github-search"],
 
     "@aldoborrero/pi-inline-bash": ["@aldoborrero/pi-inline-bash@workspace:extensions/pi-inline-bash"],
 

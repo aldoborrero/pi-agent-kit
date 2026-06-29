@@ -1,12 +1,16 @@
 import { complete, type Message } from "@earendil-works/pi-ai";
 import { SettingsManager, type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { once } from "./once.ts";
-import { fetchExaContents } from "./providers/exa.ts";
-import { fetchFirecrawl } from "./providers/firecrawl.ts";
+import { resolveApiKey, stripHtmlToText } from "./providers/utils.ts";
+import {
+  FETCH_PROVIDER_NAMES,
+  FETCH_PROVIDERS,
+  fetchWithProvider,
+  type WebFetchProvider,
+} from "./fetch-registry.ts";
 import {
   createWebSearchRegistry,
   type SearchResult,
@@ -23,10 +27,7 @@ const DEFAULT_SEARCH_RESULTS = 8;
 const MAX_SEARCH_RESULTS = 20;
 const EXTRACT_PROMPT_MAX_CHARS = 40_000;
 
-const FETCH_PROVIDER_NAMES = ["jina", "native", "firecrawl", "exa"] as const;
-type WebFetchProvider = (typeof FETCH_PROVIDER_NAMES)[number];
 
-const FETCH_PROVIDERS = [...FETCH_PROVIDER_NAMES] as string[];
 
 type WebToolsConfig = {
   defaultProvider?: WebSearchProvider;
@@ -163,107 +164,6 @@ function formatSearchResults(query: string, provider: string, results: SearchRes
   }
 
   return lines.join("\n");
-}
-
-function runGh(subcommand: string[], jsonFields: string, signal?: AbortSignal): Promise<unknown[]> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-
-    const child = spawn("gh", [...subcommand, "--json", jsonFields], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    const onAbort = () => {
-      child.kill();
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-
-    child.on("close", (code) => {
-      signal?.removeEventListener("abort", onAbort);
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `gh exited with code ${code}`));
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout) as unknown[]);
-      } catch {
-        reject(new Error(`Failed to parse gh output: ${stdout}`));
-      }
-    });
-
-    child.on("error", (err) => {
-      signal?.removeEventListener("abort", onAbort);
-      reject(err);
-    });
-  });
-}
-
-function githubSearchFailure(error: unknown) {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (msg.includes("ENOENT") || msg.includes("gh: command not found")) {
-    return fail("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/.");
-  }
-  if (msg.includes("not logged in") || msg.includes("auth login")) {
-    return fail("GitHub CLI is not authenticated. Run `gh auth login`.");
-  }
-  if ((error as Error).name === "AbortError") {
-    return fail("GitHub search aborted");
-  }
-  return fail(`GitHub search failed: ${msg}`);
-}
-
-function formatGithubCodeResults(results: GhCodeResult[]): string {
-  if (results.length === 0) return "No results found.";
-
-  const lines: string[] = [`Found ${results.length} result(s):`, ""];
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    lines.push(`### ${i + 1}. ${result.repository.fullName}/${result.path}`);
-    lines.push(`- URL: ${result.url}`);
-    for (const match of result.textMatches ?? []) {
-      const fragment = match.fragment?.split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
-      if (fragment) lines.push("```\n" + fragment + "\n```");
-    }
-    lines.push("");
-  }
-  return lines.join("\n").trim();
-}
-
-function formatGithubIssueResults(results: GhIssueResult[], kind: string): string {
-  if (results.length === 0) return `No ${kind} found.`;
-
-  const lines: string[] = [`Found ${results.length} ${kind}:`, ""];
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    const state = result.state === "open" ? "OPEN" : "CLOSED";
-    const labels = result.labels?.length ? result.labels.map((label) => label.name).join(", ") : "";
-    const age = result.createdAt?.slice(0, 10) ?? "";
-
-    lines.push(`### ${i + 1}. #${result.number} ${result.title}`);
-    lines.push(`- State: ${state}`);
-    lines.push(`- Author: ${result.author?.login ?? "?"}`);
-    if (age) lines.push(`- Date: ${age}`);
-    lines.push(`- Comments: ${result.comments ?? 0}`);
-    if (labels) lines.push(`- Labels: ${labels}`);
-    lines.push(`- URL: ${result.url}`);
-
-    if (result.body) {
-      lines.push("");
-      lines.push(truncate(result.body.replace(/\s+/g, " "), 300).text);
-    }
-    lines.push("");
-  }
-  return lines.join("\n").trim();
 }
 
 async function extractFromMarkdown(
@@ -442,54 +342,7 @@ async function clearWebToolsConfig(cwd: string): Promise<void> {
 
 
 
-async function nativeFetchHtml(url: URL, signal?: AbortSignal): Promise<{ text: string; contentType: string }> {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "User-Agent": "pi-agent-kit/1.0 web-tools native-fetch",
-    },
-    redirect: "follow",
-    signal,
-  });
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} ${response.statusText}: ${url.toString()}`);
-  }
-
-  const contentType = response.headers.get("content-type") || "";
-  return { text: await response.text(), contentType };
-}
-
-async function fetchWithProvider(
-  url: URL,
-  provider: WebFetchProvider,
-  signal?: AbortSignal,
-): Promise<{ text: string; source: string }> {
-  if (provider === FETCH_PROVIDER_NAMES[1]) {  // native
-    const { text, contentType } = await nativeFetchHtml(url, signal);
-    const isHtml = contentType.includes("text/html") || contentType.includes("application/xhtml");
-    return { text: isHtml ? stripHtmlToText(text) : text, source: FETCH_PROVIDER_NAMES[1] };
-  }
-  if (provider === FETCH_PROVIDER_NAMES[2]) {  // firecrawl
-    return await fetchFirecrawl(url, signal);
-  }
-  if (provider === FETCH_PROVIDER_NAMES[3]) {  // exa
-    return await fetchExaContents(url, signal);
-  }
-
-  // Jina provider (default)
-  const jinaUrl = `https://r.jina.ai/${url.toString()}`;
-  const response = await fetch(jinaUrl, {
-    headers: { Accept: "text/markdown" },
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Jina fetch failed: ${response.status} ${response.statusText}`);
-  }
-
-  return { text: await response.text(), source: FETCH_PROVIDER_NAMES[0] };
-}
 
 const WEB_SEARCH_REGISTRY = createWebSearchRegistry();
 
@@ -732,135 +585,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
-    name: "github_search_code",
-    description: "Search code across GitHub repositories via gh CLI. Find usage examples, implementations, and configuration patterns.",
-    promptGuidelines: [
-      "Use github_search_code to find how others implement specific patterns or use specific APIs.",
-      "Use repo to search within a specific repository.",
-      "Prefer focused qualifiers such as language, extension, filename, owner, or repo.",
-    ],
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query (e.g., 'useState lang:typescript', 'filename:flake.nix nixpkgs')" }),
-      language: Type.Optional(Type.String({ description: "Filter by language (e.g., 'python', 'typescript')" })),
-      owner: Type.Optional(Type.String({ description: "Filter by repo owner (e.g., 'nixos')" })),
-      repo: Type.Optional(Type.String({ description: "Filter by repo (e.g., 'nixos/nixpkgs')" })),
-      extension: Type.Optional(Type.String({ description: "Filter by file extension (e.g., 'ts', 'nix')" })),
-      filename: Type.Optional(Type.String({ description: "Filter by filename (e.g., 'flake.nix')" })),
-      limit: Type.Optional(Type.Number({ description: "Max results (default: 10, max: 100)", minimum: 1, maximum: 100 })),
-    }),
-    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
-      const query = params.query.trim();
-      if (!query) return fail("GitHub code search query cannot be empty");
-
-      try {
-        const args = ["search", "code", query];
-        if (params.language) args.push("--language", params.language);
-        if (params.owner) args.push("--owner", params.owner);
-        if (params.repo) args.push("--repo", params.repo);
-        if (params.extension) args.push("--extension", params.extension);
-        if (params.filename) args.push("--filename", params.filename);
-        args.push("--limit", String(clamp(params.limit ?? 10, 1, 100)));
-
-        onUpdate?.({ content: [{ type: "text", text: `Searching GitHub code: ${query}...` }] });
-
-        const results = await runGh(args, "path,repository,url,textMatches", signal) as GhCodeResult[];
-        return ok(formatGithubCodeResults(results), { query, resultCount: results.length });
-      } catch (error) {
-        return githubSearchFailure(error);
-      }
-    },
-  });
-
-  pi.registerTool({
-    name: "github_search_issues",
-    description: "Search GitHub issues. Find bugs, feature requests, discussions, and known problems in repositories.",
-    promptGuidelines: [
-      "Use github_search_issues to find known bugs, error reports, or feature requests.",
-      "Use repo to search within a specific repository.",
-      "Use state to filter open or closed issues.",
-    ],
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query (e.g., 'memory leak', 'segfault in parser')" }),
-      repo: Type.Optional(Type.String({ description: "Filter by repo (e.g., 'badlogic/pi-mono')" })),
-      owner: Type.Optional(Type.String({ description: "Filter by repo owner" })),
-      state: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("closed")], { description: "Filter by state" })),
-      label: Type.Optional(Type.String({ description: "Filter by label (e.g., 'bug', 'enhancement')" })),
-      sort: Type.Optional(Type.Union(
-        [Type.Literal("created"), Type.Literal("updated"), Type.Literal("comments"), Type.Literal("reactions")],
-        { description: "Sort order (default: created)" },
-      )),
-      limit: Type.Optional(Type.Number({ description: "Max results (default: 10, max: 100)", minimum: 1, maximum: 100 })),
-    }),
-    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
-      const query = params.query.trim();
-      if (!query) return fail("GitHub issue search query cannot be empty");
-
-      try {
-        const args = ["search", "issues", query, "--type=issue"];
-        if (params.repo) args.push("--repo", params.repo);
-        if (params.owner) args.push("--owner", params.owner);
-        if (params.state) args.push("--state", params.state);
-        if (params.label) args.push("--label", params.label);
-        if (params.sort) args.push("--sort", params.sort);
-        args.push("--limit", String(clamp(params.limit ?? 10, 1, 100)));
-
-        onUpdate?.({ content: [{ type: "text", text: `Searching GitHub issues: ${query}...` }] });
-
-        const results = await runGh(args, "number,title,state,url,author,labels,createdAt,updatedAt,comments,body", signal) as GhIssueResult[];
-        return ok(formatGithubIssueResults(results, "issues"), { query, resultCount: results.length });
-      } catch (error) {
-        return githubSearchFailure(error);
-      }
-    },
-  });
-
-  pi.registerTool({
-    name: "github_search_prs",
-    description: "Search GitHub pull requests. Find related PRs, implementations, and code changes across repositories.",
-    promptGuidelines: [
-      "Use github_search_prs to find related implementations or how others solved similar problems.",
-      "Use state='merged' to find accepted solutions.",
-    ],
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query (e.g., 'fix auth token refresh')" }),
-      repo: Type.Optional(Type.String({ description: "Filter by repo (e.g., 'badlogic/pi-mono')" })),
-      owner: Type.Optional(Type.String({ description: "Filter by repo owner" })),
-      state: Type.Optional(Type.Union(
-        [Type.Literal("open"), Type.Literal("closed"), Type.Literal("merged")],
-        { description: "Filter by state" },
-      )),
-      label: Type.Optional(Type.String({ description: "Filter by label" })),
-      sort: Type.Optional(Type.Union(
-        [Type.Literal("created"), Type.Literal("updated"), Type.Literal("comments"), Type.Literal("reactions")],
-        { description: "Sort order (default: created)" },
-      )),
-      limit: Type.Optional(Type.Number({ description: "Max results (default: 10, max: 100)", minimum: 1, maximum: 100 })),
-    }),
-    async execute(_toolCallId, params, signal, onUpdate, _ctx) {
-      const query = params.query.trim();
-      if (!query) return fail("GitHub pull request search query cannot be empty");
-
-      try {
-        const args = ["search", "prs", query];
-        if (params.repo) args.push("--repo", params.repo);
-        if (params.owner) args.push("--owner", params.owner);
-        if (params.state) args.push("--state", params.state);
-        if (params.label) args.push("--label", params.label);
-        if (params.sort) args.push("--sort", params.sort);
-        args.push("--limit", String(clamp(params.limit ?? 10, 1, 100)));
-
-        onUpdate?.({ content: [{ type: "text", text: `Searching GitHub PRs: ${query}...` }] });
-
-        const results = await runGh(args, "number,title,state,url,author,labels,createdAt,updatedAt,comments,body", signal) as GhIssueResult[];
-        return ok(formatGithubIssueResults(results, "pull requests"), { query, resultCount: results.length });
-      } catch (error) {
-        return githubSearchFailure(error);
-      }
-    },
-  });
-
-  pi.registerCommand("web_search", {
+        pi.registerCommand("web_search", {
     description: "Configure the default provider for the web_search tool",
     getArgumentCompletions: (prefix: string) => {
       const trimmed = prefix.trimStart();
