@@ -2,14 +2,15 @@ import { complete, type Message } from "@earendil-works/pi-ai";
 import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { once } from "./once.ts";
+import {
+  createWebSearchRegistry,
+  type SearchResult,
+  type WebSearchBackendParams,
+  type WebSearchProvider,
+} from "./search-registry.ts";
 
-const EXA_API_URL = "https://api.exa.ai/search";
-const BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
-const SEARXNG_CONFIG_PATH = join(homedir(), ".config", "searxng-search", "config.json");
 const WEB_TOOLS_SETTINGS_KEY = "webTools";
 const DEFAULT_FETCH_MAX_CHARS = 20_000;
 const MAX_FETCH_MAX_CHARS = 100_000;
@@ -17,82 +18,11 @@ const DEFAULT_SEARCH_RESULTS = 8;
 const MAX_SEARCH_RESULTS = 20;
 const EXTRACT_PROMPT_MAX_CHARS = 40_000;
 
-interface ExaResult {
-  title?: string | null;
-  url?: string | null;
-  text?: string | null;
-  highlights?: string[] | null;
-  publishedDate?: string | null;
-}
-
-interface ExaResponse {
-  resolvedSearchType?: string;
-  results?: ExaResult[];
-}
-
-interface BraveResult {
-  title?: string | null;
-  url?: string | null;
-  description?: string | null;
-  age?: string | null;
-  extra_snippets?: string[] | null;
-}
-
-interface BraveResponse {
-  web?: {
-    results?: BraveResult[];
-  };
-}
-
-interface SearxResult {
-  title?: string | null;
-  url?: string | null;
-  link?: string | null;
-  content?: string | null;
-  snippet?: string | null;
-  engine?: string | null;
-  engines?: string[] | null;
-  score?: number | null;
-  category?: string | null;
-  publishedDate?: string | null;
-  published_date?: string | null;
-}
-
-interface SearxResponse {
-  query?: string;
-  results?: SearxResult[];
-}
-
-type WebSearchProvider = "auto" | "exa" | "brave" | "searx";
-type WebSearchBackendName = Exclude<WebSearchProvider, "auto">;
 type WebFetchProvider = "jina" | "native";
 
 type WebToolsConfig = {
   defaultProvider?: WebSearchProvider;
   defaultFetchProvider?: WebFetchProvider;
-};
-
-type SearchResult = {
-  title: string;
-  url: string;
-  snippet?: string;
-  published?: string;
-};
-
-type WebSearchBackendParams = {
-  query: string;
-  numResults: number;
-  searchType: "auto" | "neural" | "fast" | "deep";
-  includeDomains?: string[];
-  excludeDomains?: string[];
-  signal?: AbortSignal;
-};
-
-type WebSearchBackend = {
-  name: WebSearchBackendName;
-  label: string;
-  description: string;
-  search(params: WebSearchBackendParams): Promise<{ provider: string; results: SearchResult[] }>;
 };
 
 type GhCodeResult = {
@@ -385,40 +315,6 @@ async function extractFromMarkdown(
   return text || null;
 }
 
-function buildBraveSnippet(result: BraveResult): string | undefined {
-  const parts: string[] = [];
-  if (result.description?.trim()) parts.push(result.description.trim());
-  for (const snippet of result.extra_snippets ?? []) {
-    const trimmed = snippet?.trim();
-    if (trimmed && !parts.includes(trimmed)) parts.push(trimmed);
-  }
-  if (parts.length === 0) return undefined;
-  return truncate(parts.join(" "), 320).text;
-}
-
-function normalizeSearxResult(result: SearxResult): SearchResult | null {
-  const url = result.url?.trim() || result.link?.trim();
-  if (!url) return null;
-
-  const rawSnippet = result.content?.trim() || result.snippet?.trim() || undefined;
-  return {
-    title: result.title?.trim() || url,
-    url,
-    snippet: rawSnippet ? truncate(rawSnippet.replace(/\s+/g, " "), 320).text : undefined,
-    published: result.publishedDate ?? result.published_date ?? undefined,
-  };
-}
-
-function dedupeByUrl(results: SearchResult[]): SearchResult[] {
-  const seen = new Set<string>();
-  const deduped: SearchResult[] = [];
-  for (const result of results) {
-    if (seen.has(result.url)) continue;
-    seen.add(result.url);
-    deduped.push(result);
-  }
-  return deduped;
-}
 
 function resolveWebToolsConfigPath(cwd: string): string {
   return join(cwd, ".pi", "settings.json");
@@ -558,206 +454,10 @@ async function fetchWithProvider(
   return { text: await response.text(), source: "jina" };
 }
 
-async function resolveSearxApiBase(): Promise<string> {
-  const envBase = process.env.SEARXNG_API_BASE?.trim();
-  if (envBase) return envBase.replace(/\/+$/, "");
+const WEB_SEARCH_REGISTRY = createWebSearchRegistry();
 
-  try {
-    const raw = await fs.readFile(SEARXNG_CONFIG_PATH, "utf8");
-    const config = JSON.parse(raw) as { api_base?: string };
-    const configBase = config.api_base?.trim();
-    if (configBase) return configBase.replace(/\/+$/, "");
-  } catch {
-    // ignore missing/unreadable config and fall through to explicit error
-  }
-
-  throw new Error("SEARXNG_API_BASE not set and ~/.config/searxng-search/config.json is missing or invalid");
-}
-
-async function runExaSearch(params: {
-  query: string;
-  numResults: number;
-  searchType: "auto" | "neural" | "fast" | "deep";
-  includeDomains?: string[];
-  excludeDomains?: string[];
-  signal?: AbortSignal;
-}): Promise<{ provider: string; results: SearchResult[] }> {
-  const apiKey = process.env.EXA_API_KEY;
-  if (!apiKey) {
-    throw new Error("EXA_API_KEY not set");
-  }
-
-  const response = await fetch(EXA_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      query: params.query,
-      numResults: params.numResults,
-      type: params.searchType,
-      includeDomains: params.includeDomains,
-      excludeDomains: params.excludeDomains,
-    }),
-    signal: params.signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Exa API error (${response.status}): ${await response.text()}`);
-  }
-
-  const data = (await response.json()) as ExaResponse;
-  const results: SearchResult[] = (data.results ?? [])
-    .filter((result): result is ExaResult & { url: string } => typeof result.url === "string" && result.url.length > 0)
-    .map((result) => ({
-      title: result.title?.trim() || result.url,
-      url: result.url,
-      snippet: result.text?.trim()
-        ? truncate(result.text.trim().replace(/\s+/g, " "), 320).text
-        : (result.highlights?.length ? truncate(result.highlights.join(" ... "), 320).text : undefined),
-      published: result.publishedDate ?? undefined,
-    }));
-
-  return {
-    provider: data.resolvedSearchType ? `exa:${data.resolvedSearchType}` : "exa",
-    results,
-  };
-}
-
-async function runBraveSearch(params: {
-  query: string;
-  numResults: number;
-  signal?: AbortSignal;
-}): Promise<{ provider: string; results: SearchResult[] }> {
-  const apiKey = process.env.BRAVE_API_KEY;
-  if (!apiKey) {
-    throw new Error("BRAVE_API_KEY not set");
-  }
-
-  const url = new URL(BRAVE_SEARCH_URL);
-  url.searchParams.set("q", params.query);
-  url.searchParams.set("count", String(params.numResults));
-  url.searchParams.set("extra_snippets", "true");
-
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "X-Subscription-Token": apiKey,
-    },
-    signal: params.signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Brave API error (${response.status}): ${await response.text()}`);
-  }
-
-  const data = (await response.json()) as BraveResponse;
-  const results: SearchResult[] = (data.web?.results ?? [])
-    .filter((result): result is BraveResult & { url: string } => typeof result.url === "string" && result.url.length > 0)
-    .map((result) => ({
-      title: result.title?.trim() || result.url,
-      url: result.url,
-      snippet: buildBraveSnippet(result),
-      published: result.age ?? undefined,
-    }));
-
-  return { provider: "brave", results };
-}
-
-async function runSearxSearch(params: {
-  query: string;
-  numResults: number;
-  includeDomains?: string[];
-  excludeDomains?: string[];
-  signal?: AbortSignal;
-}): Promise<{ provider: string; results: SearchResult[] }> {
-  const apiBase = await resolveSearxApiBase();
-  const url = new URL(`${apiBase}/search`);
-  url.searchParams.set("q", params.query);
-  url.searchParams.set("format", "json");
-
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "web-tools/1.0 searx",
-    },
-    signal: params.signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`SearXNG error (${response.status}): ${await response.text()}`);
-  }
-
-  const data = (await response.json()) as SearxResponse;
-  let results = (data.results ?? [])
-    .map(normalizeSearxResult)
-    .filter((result): result is SearchResult => result !== null);
-
-  results = dedupeByUrl(results);
-  results = filterByDomains(results, params.includeDomains, params.excludeDomains);
-
-  return { provider: "searx", results: results.slice(0, params.numResults) };
-}
-
-const WEB_SEARCH_BACKENDS = {
-  exa: {
-    name: "exa",
-    label: "Exa",
-    description: "AI-native semantic search; best for documentation, research, and finding high-signal sources.",
-    search: (params) => runExaSearch({
-      query: params.query,
-      numResults: params.numResults,
-      searchType: params.searchType,
-      includeDomains: params.includeDomains,
-      excludeDomains: params.excludeDomains,
-      signal: params.signal,
-    }),
-  },
-  brave: {
-    name: "brave",
-    label: "Brave",
-    description: "General web search using Brave Search API; good fallback for broad/current queries.",
-    search: async (params) => {
-      const response = await runBraveSearch({
-        query: params.query,
-        numResults: params.numResults,
-        signal: params.signal,
-      });
-      response.results = filterByDomains(response.results, params.includeDomains, params.excludeDomains);
-      return response;
-    },
-  },
-  searx: {
-    name: "searx",
-    label: "SearXNG",
-    description: "Self-hosted/privacy-oriented metasearch via a configured SearXNG instance.",
-    search: (params) => runSearxSearch({
-      query: params.query,
-      numResults: params.numResults,
-      includeDomains: params.includeDomains,
-      excludeDomains: params.excludeDomains,
-      signal: params.signal,
-    }),
-  },
-} satisfies Record<WebSearchBackendName, WebSearchBackend>;
-
-const WEB_SEARCH_BACKEND_ORDER = Object.keys(WEB_SEARCH_BACKENDS) as WebSearchBackendName[];
-const WEB_SEARCH_PROVIDERS = ["auto", ...WEB_SEARCH_BACKEND_ORDER] as WebSearchProvider[];
-
-function runWebSearchBackend(
-  backend: WebSearchBackendName,
-  params: WebSearchBackendParams,
-): Promise<{ provider: string; results: SearchResult[] }> {
-  return WEB_SEARCH_BACKENDS[backend].search(params);
-}
-
-function webSearchBackendSummary(): string[] {
-  return WEB_SEARCH_BACKEND_ORDER.map((name) => {
-    const backend = WEB_SEARCH_BACKENDS[name];
-    return `- ${name}: ${backend.label} — ${backend.description}`;
-  });
-}
+const WEB_SEARCH_BACKEND_ORDER = WEB_SEARCH_REGISTRY.order;
+const WEB_SEARCH_PROVIDERS = WEB_SEARCH_REGISTRY.providers;
 
 function providerCompletions(prefix: string, providers: WebSearchProvider[]) {
   const trimmed = prefix.trimStart().toLowerCase();
@@ -936,12 +636,12 @@ export default function webToolsExtension(pi: ExtensionAPI) {
         };
 
         if (provider !== "auto") {
-          searchResponse = await runWebSearchBackend(provider, searchParams);
+          searchResponse = await WEB_SEARCH_REGISTRY.run(provider, searchParams);
         } else {
           const errors: string[] = [];
           for (const backend of WEB_SEARCH_BACKEND_ORDER) {
             try {
-              searchResponse = await runWebSearchBackend(backend, searchParams);
+              searchResponse = await WEB_SEARCH_REGISTRY.run(backend, searchParams);
               break;
             } catch (backendError) {
               errors.push(`${backend}: ${(backendError as Error).message}`);
@@ -1144,7 +844,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
           `Settings key: ${WEB_TOOLS_SETTINGS_KEY}`,
           "",
           "Registered backends:",
-          ...webSearchBackendSummary(),
+          ...WEB_SEARCH_REGISTRY.summary(),
         ].join("\n"), "info");
         return;
       }
