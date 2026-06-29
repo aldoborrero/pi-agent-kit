@@ -1,4 +1,4 @@
-# walkie
+# pi-telegram
 
 Bridges pi coding agent sessions to Telegram. Push agent responses to your phone; steer pi from anywhere.
 
@@ -24,7 +24,7 @@ Talk to [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, follow
 ### 2. Pair your chat
 
 ```
-/walkie setup
+/telegram setup
 ```
 
 You will be prompted for your bot token. If a token is already saved, leave the input blank to keep it. Then **send any message to your bot on Telegram** — that chat is now paired, your user ID is recorded as the only allowed sender, and the bot command menu is registered automatically.
@@ -37,12 +37,12 @@ Ask pi to do something. The response will appear on your phone when the agent fi
 
 | Command | Description |
 |---------|-------------|
-| `/walkie` | Toggle on/off |
-| `/walkie setup` | Enter pairing mode (prompts for bot token) |
-| `/walkie start` | Enable and start polling |
-| `/walkie stop` | Disable and stop polling |
-| `/walkie stream` | Toggle live draft streaming |
-| `/walkie status` | Show current config and state |
+| `/telegram` | Toggle on/off |
+| `/telegram setup` | Enter pairing mode (prompts for bot token) |
+| `/telegram start` | Enable and start polling |
+| `/telegram stop` | Disable and stop polling |
+| `/telegram stream` | Toggle live draft streaming |
+| `/telegram status` | Show current config and state |
 
 ## Commands (in Telegram, from your phone)
 
@@ -58,7 +58,7 @@ These commands are registered as a bot menu automatically on setup and on every 
 
 ## Live Draft Streaming
 
-Streaming is **enabled by default** — since Bot API 9.5, `sendMessageDraft` is available to all bots. Disable with `/walkie stream` if needed.
+Streaming is **enabled by default** — since Bot API 9.5, `sendMessageDraft` is available to all bots. Disable with `/telegram stream` if needed.
 
 While the agent is generating a response, pi will send intermediate previews to Telegram as they arrive. The draft is ephemeral — a final permanent message replaces it when the agent finishes.
 
@@ -75,14 +75,14 @@ When the draft buffer exceeds 3000 bytes, a **progress preview** is shown instea
 
 ## Config (`settings.json`)
 
-Global config is stored in `~/.pi/agent/settings.json` under `walkie`.
-Project-local overrides are stored in `<cwd>/.pi/settings.json` under `walkie`.
+Global config is stored in `~/.pi/agent/settings.json` under `telegram`.
+Project-local overrides are stored in `<cwd>/.pi/settings.json` under `telegram`.
 
 Example global config:
 
 ```json
 {
-  "walkie": {
+  "telegram": {
     "botToken": "123456:ABC-DEF...",
     "chatId": 987654321,
     "allowedUserId": 987654321,
@@ -96,20 +96,20 @@ Example project-local override:
 
 ```json
 {
-  "walkie": {
+  "telegram": {
     "topicId": 123,
     "topicName": "pi-agent-kit"
   }
 }
 ```
 
-Config is written automatically by `/walkie setup`. You can also edit it manually.
-Legacy compatibility is still kept for `~/.pi/walkie.json` and `<cwd>/.pi/walkie.json`.
+Config is written automatically by `/telegram setup`. You can also edit it manually.
+Legacy compatibility is still kept for previous `walkie` settings and `~/.pi/walkie.json` / `<cwd>/.pi/walkie.json` sidecars.
 
 ## Security
 
 - Only messages from `allowedUserId` are processed. All others are silently dropped.
-- The bot token is stored in `~/.pi/agent/settings.json` under `walkie` (mode 600 recommended for the file).
+- The bot token is stored in `~/.pi/agent/settings.json` under `telegram` (mode 600 recommended for the file).
 - The polling loop only accepts `message` and `callback_query` update types.
 - `/abort` sends a steering message and calls `ctx.abort()` — it cannot be triggered by any other Telegram user.
 

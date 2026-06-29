@@ -1,5 +1,5 @@
 /**
- * Message queue for walkie extension.
+ * Message queue for telegram extension.
  *
  * Holds messages that arrive while the agent is busy (streaming).
  * After each agent_end, the queue drains the next message to trigger

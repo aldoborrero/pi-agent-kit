@@ -71,7 +71,7 @@ All extensions follow the same structure:
 | Extension | Description |
 |-----------|-------------|
 | [`pi-direnv`](extensions/pi-direnv) | Auto-load direnv environment variables |
-| [`pi-walkie`](extensions/pi-walkie) | Telegram bridge for mobile messaging |
+| [`pi-telegram`](extensions/pi-telegram) | Telegram bridge for mobile messaging |
 | [`pi-codex`](extensions/pi-codex) | OpenAI Codex integration — review and rescue tasks |
 | [`pi-notify`](extensions/pi-notify) | Desktop notifications when agent finishes |
 

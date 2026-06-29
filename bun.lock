@@ -49,7 +49,7 @@
         "@aldoborrero/pi-tuicr": "*",
         "@aldoborrero/pi-until": "*",
         "@aldoborrero/pi-voice": "*",
-        "@aldoborrero/pi-walkie": "*",
+        "@aldoborrero/pi-telegram": "*",
         "@aldoborrero/pi-workflows": "*",
         "@gotgenes/pi-permission-system": "*",
         "@juicesharp/rpiv-args": "*",
@@ -324,8 +324,8 @@
         "@earendil-works/pi-tui": "*",
       },
     },
-    "extensions/pi-walkie": {
-      "name": "@aldoborrero/pi-walkie",
+    "extensions/pi-telegram": {
+      "name": "@aldoborrero/pi-telegram",
       "version": "1.0.0",
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
@@ -412,7 +412,7 @@
 
     "@aldoborrero/pi-voice": ["@aldoborrero/pi-voice@workspace:extensions/pi-voice"],
 
-    "@aldoborrero/pi-walkie": ["@aldoborrero/pi-walkie@workspace:extensions/pi-walkie"],
+    "@aldoborrero/pi-telegram": ["@aldoborrero/pi-telegram@workspace:extensions/pi-telegram"],
 
     "@aldoborrero/pi-web-tools": ["@aldoborrero/pi-web-tools@workspace:extensions/pi-web-tools"],
 

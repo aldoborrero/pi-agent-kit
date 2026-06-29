@@ -58,7 +58,7 @@ direnv allow
 | `/oracle [on\|off\|model\|status]` | oracle | Toggle/configure next-prompt suggestions |
 | `/diff` | diff | Interactive diff viewer (tuicr/delta/git) |
 | `/voice [config\|provider\|lang\|mode]` | voice | Toggle-to-record speech-to-text (`Ctrl+Alt+V`) |
-| `/walkie setup` | walkie | Telegram bridge for mobile use |
+| `/telegram setup` | telegram | Telegram bridge for mobile use |
 | `/bw [unlock\|lock\|sync\|status]` | bitwarden | Vault management via rbw |
 | `/sandbox [on\|off]` | sandbox | Toggle OS-level bash sandboxing |
 | `/commit` | git-commit-context | Commit with git status/log context |
@@ -381,9 +381,9 @@ PI_ORACLE_MODEL=groq/qwen/qwen3-32b       # better quality
 
 Or via `/oracle model` (interactive TUI selector) or `<cwd>/.pi/oracle.json`.
 
-### 10. Walkie Extension Architecture
+### 10. Telegram Extension Architecture
 
-Walkie bridges pi to Telegram. Pi owns session state — walkie just shuttles messages. Don't duplicate pi's session management in the bridge. Use `MessageQueue` for messages arriving while agent is busy.
+pi-telegram bridges pi to Telegram. Pi owns session state — the bridge just shuttles messages. Don't duplicate pi's session management in the bridge. Use `MessageQueue` for messages arriving while agent is busy.
 
 ---
 

@@ -57,7 +57,7 @@
     "@aldoborrero/pi-until": "*",
     "@aldoborrero/pi-voice": "*",
     "@aldoborrero/pi-themes": "*",
-    "@aldoborrero/pi-walkie": "*",
+    "@aldoborrero/pi-telegram": "*",
     "@aldoborrero/pi-workflows": "*",
     "@gotgenes/pi-permission-system": "*",
     "@juicesharp/rpiv-args": "*",

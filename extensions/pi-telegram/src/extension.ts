@@ -1,5 +1,5 @@
 /**
- * Walkie Extension
+ * Telegram Extension
  *
  * Bridges pi coding agent sessions to Telegram for mobile use.
  *
@@ -11,13 +11,13 @@
  *   Telegram → pi  — inline keyboard choices tap → submit_text injected
  *
  * Pi commands:
- *   /walkie          — toggle on/off
- *   /walkie setup    — enter pairing mode
- *   /walkie start    — enable and start polling
- *   /walkie stop     — disable and stop polling
- *   /walkie stream   — toggle draft streaming
- *   /walkie status   — show config
- *   /walkie topic    — create a forum topic and bind this instance to it
+ *   /telegram          — toggle on/off
+ *   /telegram setup    — enter pairing mode
+ *   /telegram start    — enable and start polling
+ *   /telegram stop     — disable and stop polling
+ *   /telegram stream   — toggle draft streaming
+ *   /telegram status   — show config
+ *   /telegram topic    — create a forum topic and bind this instance to it
  *
  * Telegram commands (from your phone):
  *   /abort    — stop agent run
@@ -62,10 +62,12 @@ import {
 const PI_DIR = dirname(getAgentDir());
 const PI_DIR_NAME = PI_DIR.replace(homedir() + "/", ""); // e.g. ".pi"
 
-const CONFIG_PATH = join(PI_DIR, "walkie.json");
-const WALKIE_SETTINGS_KEY = "walkie";
+const CONFIG_PATH = join(PI_DIR, "telegram.json");
+const LEGACY_CONFIG_PATH = join(PI_DIR, "walkie.json");
+const TELEGRAM_SETTINGS_KEY = "telegram";
+const LEGACY_WALKIE_SETTINGS_KEY = "walkie";
 
-interface WalkieConfig {
+interface TelegramConfig {
   botToken: string;
   chatId: number;
   allowedUserId: number;
@@ -80,58 +82,71 @@ interface WalkieConfig {
   topicName?: string;
 }
 
-function normalizeWalkieConfig(raw: unknown): Partial<WalkieConfig> {
+function normalizeTelegramConfig(raw: unknown): Partial<TelegramConfig> {
   if (!raw || typeof raw !== "object") return {};
-  return raw as Partial<WalkieConfig>;
+  return raw as Partial<TelegramConfig>;
 }
 
-function loadLegacyConfigSync(): Partial<WalkieConfig> {
+function loadSidecarConfigSync(path: string): Partial<TelegramConfig> {
   try {
-    return normalizeWalkieConfig(JSON.parse(readFileSync(CONFIG_PATH, "utf8")));
+    return normalizeTelegramConfig(JSON.parse(readFileSync(path, "utf8")));
   } catch {
     return {};
   }
 }
 
-function loadConfigSync(cwd: string = process.cwd()): Partial<WalkieConfig> {
+function loadGlobalSidecarConfigSync(): Partial<TelegramConfig> {
+  return {
+    ...loadSidecarConfigSync(LEGACY_CONFIG_PATH),
+    ...loadSidecarConfigSync(CONFIG_PATH),
+  };
+}
+
+function loadConfigSync(cwd: string = process.cwd()): Partial<TelegramConfig> {
   try {
     const manager = SettingsManager.create(cwd);
     const globalSettings = manager.getGlobalSettings() as Record<string, unknown>;
-    return { ...loadLegacyConfigSync(), ...normalizeWalkieConfig(globalSettings[WALKIE_SETTINGS_KEY]) };
+    return {
+      ...loadGlobalSidecarConfigSync(),
+      ...normalizeTelegramConfig(globalSettings[LEGACY_WALKIE_SETTINGS_KEY]),
+      ...normalizeTelegramConfig(globalSettings[TELEGRAM_SETTINGS_KEY]),
+    };
   } catch {
-    return loadLegacyConfigSync();
+    return loadGlobalSidecarConfigSync();
   }
 }
 
-/** Load project-local overrides from <cwd>/.pi/settings.json, with legacy fallback to <cwd>/.pi/walkie.json */
-function loadProjectConfigSync(cwd: string): Partial<WalkieConfig> {
+/** Load project-local overrides from <cwd>/.pi/settings.json, with legacy fallback to <cwd>/.pi/{telegram,walkie}.json */
+function loadProjectConfigSync(cwd: string): Partial<TelegramConfig> {
   try {
     const manager = SettingsManager.create(cwd);
     const projectSettings = manager.getProjectSettings() as Record<string, unknown>;
-    const settingsConfig = normalizeWalkieConfig(projectSettings[WALKIE_SETTINGS_KEY]);
+    const settingsConfig = {
+      ...normalizeTelegramConfig(projectSettings[LEGACY_WALKIE_SETTINGS_KEY]),
+      ...normalizeTelegramConfig(projectSettings[TELEGRAM_SETTINGS_KEY]),
+    };
     if (Object.keys(settingsConfig).length > 0) return settingsConfig;
   } catch {
-    // fall back to legacy sidecar
+    // fall back to sidecars
   }
-  try {
-    const path = join(cwd, PI_DIR_NAME, "walkie.json");
-    return normalizeWalkieConfig(JSON.parse(readFileSync(path, "utf8")));
-  } catch {
-    return {};
-  }
+
+  return {
+    ...loadSidecarConfigSync(join(cwd, PI_DIR_NAME, "walkie.json")),
+    ...loadSidecarConfigSync(join(cwd, PI_DIR_NAME, "telegram.json")),
+  };
 }
 
 /**
- * Persist global config to ~/.pi/agent/settings.json under the walkie key.
+ * Persist global config to ~/.pi/agent/settings.json under the telegram key.
  * topicId and topicName are project-specific — use persistProjectConfig() for those.
  */
-async function persistConfig(config: Partial<WalkieConfig>): Promise<void> {
+async function persistConfig(config: Partial<TelegramConfig>): Promise<void> {
   const { topicId, topicName, ...globalFields } = config;
   try {
     const manager = SettingsManager.create(process.cwd());
     await manager.reload();
     const globalSettings = manager.getGlobalSettings() as Record<string, unknown>;
-    globalSettings[WALKIE_SETTINGS_KEY] = globalFields;
+    globalSettings[TELEGRAM_SETTINGS_KEY] = globalFields;
     const internal = manager as unknown as {
       globalSettings: Record<string, unknown>;
       modifiedFields: Set<string>;
@@ -139,7 +154,7 @@ async function persistConfig(config: Partial<WalkieConfig>): Promise<void> {
       flush: () => Promise<void>;
     };
     internal.globalSettings = globalSettings;
-    internal.modifiedFields.add(WALKIE_SETTINGS_KEY);
+    internal.modifiedFields.add(TELEGRAM_SETTINGS_KEY);
     internal.save();
     await internal.flush();
   } catch {
@@ -147,21 +162,24 @@ async function persistConfig(config: Partial<WalkieConfig>): Promise<void> {
   }
 }
 
-/** Persist project-local overrides (topicId, topicName) to <cwd>/.pi/settings.json under walkie */
-async function persistProjectConfig(cwd: string, partial: Pick<Partial<WalkieConfig>, "topicId" | "topicName">): Promise<void> {
+/** Persist project-local overrides (topicId, topicName) to <cwd>/.pi/settings.json under telegram */
+async function persistProjectConfig(cwd: string, partial: Pick<Partial<TelegramConfig>, "topicId" | "topicName">): Promise<void> {
   try {
     const manager = SettingsManager.create(cwd);
     await manager.reload();
     const projectSettings = manager.getProjectSettings() as Record<string, unknown>;
-    const existing = normalizeWalkieConfig(projectSettings[WALKIE_SETTINGS_KEY]);
+    const existing = {
+      ...normalizeTelegramConfig(projectSettings[LEGACY_WALKIE_SETTINGS_KEY]),
+      ...normalizeTelegramConfig(projectSettings[TELEGRAM_SETTINGS_KEY]),
+    };
     const merged = { ...existing, ...partial };
-    projectSettings[WALKIE_SETTINGS_KEY] = merged;
+    projectSettings[TELEGRAM_SETTINGS_KEY] = merged;
     const internal = manager as unknown as {
       modifiedProjectFields: Set<string>;
       saveProjectSettings: (settings: Record<string, unknown>) => void;
       flush: () => Promise<void>;
     };
-    internal.modifiedProjectFields.add(WALKIE_SETTINGS_KEY);
+    internal.modifiedProjectFields.add(TELEGRAM_SETTINGS_KEY);
     internal.saveProjectSettings(projectSettings);
     await internal.flush();
   } catch {
@@ -198,7 +216,7 @@ function loadVoiceConfigSync(cwd: string = process.cwd()): VoiceConfig {
   }
 }
 
-function isConfigured(c: Partial<WalkieConfig>): c is WalkieConfig {
+function isConfigured(c: Partial<TelegramConfig>): c is TelegramConfig {
   return (
     typeof c.botToken === "string" &&
     c.botToken.length > 0 &&
@@ -207,8 +225,8 @@ function isConfigured(c: Partial<WalkieConfig>): c is WalkieConfig {
   );
 }
 
-/** True when walkie is fully configured AND enabled — the common guard. */
-function isActive(c: Partial<WalkieConfig>): c is WalkieConfig {
+/** True when telegram is fully configured AND enabled — the common guard. */
+function isActive(c: Partial<TelegramConfig>): c is TelegramConfig {
   if (!isConfigured(c)) return false;
   return c.enabled;
 }
@@ -231,7 +249,7 @@ const INTERACTION_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const SETUP_MODE_TTL_MS  =  5 * 60 * 1000; //  5 minutes
 
 /**
- * System prompt appended when walkie is active so the agent knows how to
+ * System prompt appended when telegram is active so the agent knows how to
  * produce Telegram inline keyboard choices.
  */
 const CHOICES_SYSTEM_PROMPT = `
@@ -283,7 +301,7 @@ const CALLBACK_DATA_MAX_BYTES = 64;
 function buildChoicesKeyboard(interactionId: number, options: ChoiceOption[]): tg.InlineKeyboardMarkup {
   return {
     inline_keyboard: options.map(opt => {
-      const prefix = `wk:${interactionId}:`;
+      const prefix = `tg:${interactionId}:`;
       // Truncate the id if the full callback_data would exceed 64 bytes (rare in practice
       // since the system prompt shows single-letter ids, but enforced defensively).
       let id = opt.id;
@@ -305,8 +323,8 @@ const BOT_COMMANDS: tg.BotCommand[] = [
   { command: "new",     description: "New session (queued if agent is active)" },
   { command: "think",   description: "Cycle thinking level: none → low → high" },
   { command: "stream",  description: "Toggle live draft preview on/off" },
-  { command: "mute",    description: "Silence walkie notifications" },
-  { command: "unmute",  description: "Resume walkie notifications" },
+  { command: "mute",    description: "Silence telegram notifications" },
+  { command: "unmute",  description: "Resume telegram notifications" },
 ];
 
 /** Spanish translations — shown when the user's Telegram language is set to Spanish */
@@ -317,8 +335,8 @@ const BOT_COMMANDS_ES: tg.BotCommand[] = [
   { command: "new",     description: "Nueva sesión (en cola si el agente está activo)" },
   { command: "think",   description: "Cambiar nivel de razonamiento: ninguno → bajo → alto" },
   { command: "stream",  description: "Activar/desactivar vista previa en tiempo real" },
-  { command: "mute",    description: "Silenciar notificaciones de walkie" },
-  { command: "unmute",  description: "Reanudar notificaciones de walkie" },
+  { command: "mute",    description: "Silenciar notificaciones de telegram" },
+  { command: "unmute",  description: "Reanudar notificaciones de telegram" },
 ];
 
 // ── Topic routing helpers ─────────────────────────────────────────────────────
@@ -331,7 +349,7 @@ const BOT_COMMANDS_ES: tg.BotCommand[] = [
  * Usage:
  *   await tg.sendMessage(token, chatId, text, { ...topicOptions(config), parse_mode: "HTML" });
  */
-function topicOptions(config: Partial<WalkieConfig>): Partial<tg.SendMessageOptions> {
+function topicOptions(config: Partial<TelegramConfig>): Partial<tg.SendMessageOptions> {
   return config.topicId ? { message_thread_id: config.topicId } : {};
 }
 
@@ -360,8 +378,8 @@ function extractLastAssistantText(messages: unknown[]): string {
 
 // ── Extension ─────────────────────────────────────────────────────────────────
 
-export default function walkieExtension(pi: ExtensionAPI) {
-  once(pi, "pi-walkie", () => {
+export default function telegramExtension(pi: ExtensionAPI) {
+  once(pi, "pi-telegram", () => {
   // ─── pi API shims ─────────────────────────────────────────────────────────
   // getThinkingLevel / setThinkingLevel are available on ExtensionAPI but not
   // re-exported from the package root index in this version of pi.
@@ -378,12 +396,12 @@ export default function walkieExtension(pi: ExtensionAPI) {
 
   // ─── Module-level state ──────────────────────────────────────────────────
 
-  let config: Partial<WalkieConfig> = loadConfigSync();
+  let config: Partial<TelegramConfig> = loadConfigSync();
   let cachedVoiceConfig: VoiceConfig = {};
   let pollingAbort: AbortController | null = null;
   /** True while pi agent loop is running (between agent_start → agent_end) */
   let isStreaming = false;
-  /** True after /walkie setup — next Telegram message claims chat_id + user_id */
+  /** True after /telegram setup — next Telegram message claims chat_id + user_id */
   let setupMode = false;
   /** Timer that expires setupMode after SETUP_MODE_TTL_MS if no pairing message arrives */
   let setupModeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -502,18 +520,18 @@ export default function walkieExtension(pi: ExtensionAPI) {
     const colors = createUiColors(ctx.ui.theme);
 
     if (!config.enabled) {
-      setStatus("walkie", colors.warning("walkie:off"));
+      setStatus("telegram", colors.warning(" off"));
       return;
     }
     if (setupMode) {
-      setStatus("walkie", colors.warning("walkie:setup"));
+      setStatus("telegram", colors.warning(" setup"));
       return;
     }
     if (!isConfigured(config)) {
-      setStatus("walkie", colors.danger("walkie:unconfigured"));
+      setStatus("telegram", colors.danger(" unconfigured"));
       return;
     }
-    setStatus("walkie", colors.success("walkie:on"));
+    setStatus("telegram", colors.success(""));
   }
 
   /**
@@ -666,7 +684,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
 
         for (const update of updates) {
           offset = update.update_id + 1;
-          handleUpdate(update).catch((err) => { console.error("[walkie] handleUpdate error:", err); });
+          handleUpdate(update).catch((err) => { console.error("[telegram] handleUpdate error:", err); });
         }
       } catch (err) {
         if (signal.aborted) break;
@@ -681,7 +699,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
   /**
    * Register the bot command menu. When chatId is known, uses a chat-scoped
    * registration so commands only appear for this specific group — important
-   * when multiple walkie instances share the same bot token.
+   * when multiple telegram instances share the same bot token.
    */
   async function registerBotCommands(token: string, chatId?: number): Promise<void> {
     const scope: tg.BotCommandScope | undefined = chatId
@@ -728,7 +746,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
 
     if (!cq.data) return;
 
-    if (cq.data.startsWith("wk:")) {
+    if (cq.data.startsWith("tg:") || cq.data.startsWith("wk:")) {
       const parts = cq.data.split(":");
       const interactionId = Number(parts[1]);
       // Rejoin with ":" to handle any colons inside the id itself.
@@ -752,7 +770,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
         pi.sendUserMessage(opt.submit_text);
       }
     } else {
-      pi.events.emit("walkie:callback", { data: cq.data });
+      pi.events.emit("telegram:callback", { data: cq.data });
     }
   }
 
@@ -792,7 +810,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
           `Context: ${usageStr}`,
           `Thinking: ${thinkingLevel}`,
           `Streaming: ${config.streaming ? "✅" : "❌"}`,
-          `Walkie: ${config.enabled ? "✅" : "❌"}`,
+          `Telegram: ${config.enabled ? "✅" : "❌"}`,
         ].filter(Boolean).join("\n");
         await tg.sendMessage(config.botToken, config.chatId, html, { ...topicOptions(config), parse_mode: "HTML" }).catch(() => {});
         break;
@@ -1199,7 +1217,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
 
   // ─── Commands ─────────────────────────────────────────────────────────────
 
-  pi.registerCommand("walkie", {
+  pi.registerCommand("telegram", {
     description: "Telegram bridge — toggle, setup, or configure",
 
     getArgumentCompletions: (prefix: string) => {
@@ -1219,7 +1237,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
         config.enabled = !config.enabled;
         await persistConfig(config);
         updateStatus(ctx);
-        ctx.ui.notify(config.enabled ? "Walkie enabled" : "Walkie disabled", "info");
+        ctx.ui.notify(config.enabled ? "Telegram enabled" : "Telegram disabled", "info");
 
         if (config.enabled && isConfigured(config) && !pollingAbort) {
           startPolling().catch(() => {});
@@ -1286,7 +1304,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
               setupMode = false;
               setupModeTimer = null;
               if (lastCtx) updateStatus(lastCtx);
-              lastCtx?.ui.notify("⏱ Setup mode expired — run /walkie setup again to pair.", "warning");
+              lastCtx?.ui.notify("⏱ Setup mode expired — run /telegram setup again to pair.", "warning");
             }
           }, SETUP_MODE_TTL_MS);
 
@@ -1319,7 +1337,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
             const initialOffset = await tg.getNextUpdateOffset(config.botToken).catch(() => 0);
             startPolling(initialOffset).catch(() => {});
           }
-          ctx.ui.notify("Walkie started", "info");
+          ctx.ui.notify("Telegram started", "info");
           break;
         }
 
@@ -1329,7 +1347,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
           await persistConfig(config);
           stopPolling();
           updateStatus(ctx);
-          ctx.ui.notify("Walkie stopped", "info");
+          ctx.ui.notify("Telegram stopped", "info");
           break;
         }
 
@@ -1357,8 +1375,8 @@ export default function walkieExtension(pi: ExtensionAPI) {
             `Stream  : ${config.streaming ? "yes" : "no"}`,
             `Polling : ${pollingAbort ? "active" : "stopped"}`,
             `Agent   : ${isStreaming ? "running" : "idle"}`,
-            `Global  : ${join(getAgentDir(), "settings.json")}#${WALKIE_SETTINGS_KEY}`,
-            `Project : ${join(ctx.cwd, ".pi", "settings.json")}#${WALKIE_SETTINGS_KEY}`,
+            `Global  : ${join(getAgentDir(), "settings.json")}#${TELEGRAM_SETTINGS_KEY}`,
+            `Project : ${join(ctx.cwd, ".pi", "settings.json")}#${TELEGRAM_SETTINGS_KEY}`,
           ];
           ctx.ui.notify(lines.join("\n"), "info");
           break;
@@ -1367,7 +1385,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
         // ── Topic: create a forum topic and save its ID ───────────────────
         case "topic": {
           if (!isConfigured(config)) {
-            ctx.ui.notify("Walkie not configured — run /walkie setup first.", "warning");
+            ctx.ui.notify("Telegram not configured — run /telegram setup first.", "warning");
             break;
           }
           const rawName = subArgs.trim();
@@ -1393,7 +1411,7 @@ export default function walkieExtension(pi: ExtensionAPI) {
 
         default:
           ctx.ui.notify(
-            "Usage: /walkie [setup | topic <name> | start | stop | status | stream]",
+            "Usage: /telegram [setup | topic <name> | start | stop | status | stream]",
             "warning",
           );
       }
