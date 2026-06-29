@@ -102,6 +102,17 @@ bun install                  # Install workspace dependencies
 bun test                     # Run tests
 ```
 
+## Publishing
+
+Monorepo publishing is idempotent and package-version based:
+
+```bash
+bun run publish:dry          # Show packages whose name@version is not on npm
+bun run publish:all          # Publish unpublished workspace package versions
+```
+
+The GitHub workflow keeps the Nix shell and runs on `release-YYYYMMDD-HHMM` tags.
+
 ## License
 
 [MIT](LICENSE)

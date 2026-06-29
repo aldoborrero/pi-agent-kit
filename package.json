@@ -7,6 +7,10 @@
   "workspaces": [
     "extensions/*"
   ],
+  "scripts": {
+    "publish:all": "bun scripts/publish-all.ts",
+    "publish:dry": "bun scripts/publish-all.ts --dry-run"
+  },
   "keywords": [
     "pi-package",
     "ai-agent",
