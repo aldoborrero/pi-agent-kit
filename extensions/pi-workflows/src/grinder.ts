@@ -635,6 +635,42 @@ function listStoredRuns(repoRoot: string): WorkflowRunManifest[] {
   }
 }
 
+function completionRepoRoot(cwd: string): string {
+  let current = cwd;
+  while (true) {
+    if (existsSync(join(current, ".git"))) return current;
+    const parent = dirname(current);
+    if (parent === current) return cwd;
+    current = parent;
+  }
+}
+
+function runIdCompletions(cwd: string, prefix: string, workflow?: string): Array<{ value: string; label: string }> | null {
+  try {
+    const repoRoot = completionRepoRoot(cwd);
+    const runs = listStoredRuns(repoRoot)
+      .filter((run) => !workflow || run.workflow === workflow)
+      .slice(0, MAX_LISTED_RUNS);
+    const ids = runs.map((run) => run.id);
+    return completeWorkflowArgument(prefix, ids);
+  } catch {
+    return null;
+  }
+}
+
+function candidateIdCompletions(cwd: string, runId: string, prefix: string): Array<{ value: string; label: string }> | null {
+  try {
+    const repoRoot = completionRepoRoot(cwd);
+    const manifest = getStoredRun(repoRoot, runId);
+    if (!manifest) return null;
+    const hydrated = hydrateGrindManifest(repoRoot, manifest);
+    const ids = (hydrated.candidates ?? []).map((candidate) => candidate.id);
+    return completeWorkflowArgument(prefix, ids);
+  } catch {
+    return null;
+  }
+}
+
 function saveStoredRun(repoRoot: string, run: WorkflowRunManifest): void {
   const db = openWorkflowDb(repoRoot);
   try {
@@ -972,10 +1008,15 @@ export default function workflowExtension(pi: ExtensionAPI): void {
       const root = ["help", "list", "run", "show", "events", "stop"];
       if (!trimmed) return root.map((value) => ({ value, label: value }));
       if (parts.length <= 1 && !endsWithSpace) return completeWorkflowArgument(parts[0] ?? "", root);
-      if ((parts[0] ?? "") === "run") {
+      const subcommand = parts[0] ?? "";
+      if (subcommand === "run") {
         const builtins = workflowNamesForCompletion(sessionCwd);
         const subPrefix = parts.length <= 1 || endsWithSpace ? "" : (parts[1] ?? "");
         return completeWorkflowArgument(subPrefix, builtins)?.map((item) => ({ value: `run ${item.value}`, label: item.label })) ?? null;
+      }
+      if (subcommand === "show" || subcommand === "events") {
+        const subPrefix = parts.length <= 1 || endsWithSpace ? "" : (parts[1] ?? "");
+        return runIdCompletions(sessionCwd, subPrefix)?.map((item) => ({ value: `${subcommand} ${item.value}`, label: item.label })) ?? null;
       }
       return null;
     },
@@ -991,6 +1032,20 @@ export default function workflowExtension(pi: ExtensionAPI): void {
       const root = ["status", "list", "show", "clean", "checkout", "stop"];
       if (!trimmed) return root.map((value) => ({ value, label: value }));
       if (parts.length <= 1 && !endsWithSpace) return completeWorkflowArgument(parts[0] ?? "", root);
+      const subcommand = parts[0] ?? "";
+      if (subcommand === "show" || subcommand === "clean") {
+        const subPrefix = parts.length <= 1 || endsWithSpace ? "" : (parts[1] ?? "");
+        return runIdCompletions(sessionCwd, subPrefix, "grind")?.map((item) => ({ value: `${subcommand} ${item.value}`, label: item.label })) ?? null;
+      }
+      if (subcommand === "checkout") {
+        if (parts.length === 1 || (parts.length === 2 && !endsWithSpace)) {
+          const runPrefix = parts.length === 1 ? "" : (parts[1] ?? "");
+          return runIdCompletions(sessionCwd, runPrefix, "grind")?.map((item) => ({ value: `checkout ${item.value}`, label: item.label })) ?? null;
+        }
+        const runId = parts[1] ?? "";
+        const candidatePrefix = parts.length <= 2 || endsWithSpace ? "" : (parts[2] ?? "");
+        return candidateIdCompletions(sessionCwd, runId, candidatePrefix)?.map((item) => ({ value: `checkout ${runId} ${item.value}`, label: item.label })) ?? null;
+      }
       return null;
     },
     handler: async (args, ctx) => { await handleGrindCommand(pi, args, ctx); },
