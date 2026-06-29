@@ -32,7 +32,6 @@ All extensions follow the same structure:
 | [`pi-ast-grep`](extensions/pi-ast-grep) | Structural code search using AST patterns |
 | [`pi-diff`](extensions/pi-diff) | Structured diff rendering |
 | [`pi-tuicr`](extensions/pi-tuicr) | Interactive code review launcher |
-| [`pi-github-search`](extensions/pi-github-search) | Search code, issues, and PRs on GitHub |
 
 ### Safety
 
@@ -64,7 +63,7 @@ All extensions follow the same structure:
 
 | Extension | Description |
 |-----------|-------------|
-| [`pi-web-tools`](extensions/pi-web-tools) | Web search and fetch tools |
+| [`pi-web-tools`](extensions/pi-web-tools) | Web, page fetch, and GitHub code/issues/PR search tools |
 
 ### Environment & Integration
 

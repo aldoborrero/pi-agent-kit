@@ -44,7 +44,6 @@
     "@aldoborrero/pi-alias": "*",
     "@aldoborrero/pi-footer": "*",
     "@aldoborrero/pi-git-checkpoint": "*",
-    "@aldoborrero/pi-github-search": "*",
     "@aldoborrero/pi-inline-bash": "*",
     "@aldoborrero/pi-loop": "*",
     "@aldoborrero/pi-notify": "*",

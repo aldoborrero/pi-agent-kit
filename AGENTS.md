@@ -79,9 +79,9 @@ direnv allow
 | `web_search` | web-tools | **Preferred** high-level web search (uses Exa, Brave, and SearXNG backends) |
 | `web_fetch` | web-tools | **Preferred** high-level page fetcher with markdown output |
 | `ast_grep` | ast-grep | Structural code search via AST patterns |
-| `github_search_code` | github-search | Search code on GitHub |
-| `github_search_issues` | github-search | Search GitHub issues |
-| `github_search_prs` | github-search | Search GitHub PRs |
+| `github_search_code` | web-tools | Search code on GitHub via gh CLI |
+| `github_search_issues` | web-tools | Search GitHub issues via gh CLI |
+| `github_search_prs` | web-tools | Search GitHub PRs via gh CLI |
 | `subagent` | subagent | Delegate tasks to specialized agents (single, parallel, chain) |
 | `questionnaire` | questionnaire | Ask structured multi-question UI with options |
 | `tuicr` | tuicr | Interactive code review with feedback capture |

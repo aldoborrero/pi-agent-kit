@@ -36,7 +36,6 @@
         "@aldoborrero/pi-edit": "*",
         "@aldoborrero/pi-footer": "*",
         "@aldoborrero/pi-git-checkpoint": "*",
-        "@aldoborrero/pi-github-search": "*",
         "@aldoborrero/pi-inline-bash": "*",
         "@aldoborrero/pi-loop": "*",
         "@aldoborrero/pi-notify": "*",
@@ -45,11 +44,11 @@
         "@aldoborrero/pi-skills": "*",
         "@aldoborrero/pi-subagent": "*",
         "@aldoborrero/pi-suggest": "*",
+        "@aldoborrero/pi-telegram": "*",
         "@aldoborrero/pi-themes": "*",
         "@aldoborrero/pi-tuicr": "*",
         "@aldoborrero/pi-until": "*",
         "@aldoborrero/pi-voice": "*",
-        "@aldoborrero/pi-telegram": "*",
         "@aldoborrero/pi-workflows": "*",
         "@gotgenes/pi-permission-system": "*",
         "@juicesharp/rpiv-args": "*",
@@ -194,16 +193,6 @@
         "@earendil-works/pi-tui": "*",
       },
     },
-    "extensions/pi-github-search": {
-      "name": "@aldoborrero/pi-github-search",
-      "version": "1.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": "*",
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
     "extensions/pi-inline-bash": {
       "name": "@aldoborrero/pi-inline-bash",
       "version": "1.0.0",
@@ -290,6 +279,16 @@
         "@earendil-works/pi-tui": "*",
       },
     },
+    "extensions/pi-telegram": {
+      "name": "@aldoborrero/pi-telegram",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": "*",
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+      },
+    },
     "extensions/pi-themes": {
       "name": "@aldoborrero/pi-themes",
       "version": "1.0.0",
@@ -316,16 +315,6 @@
     },
     "extensions/pi-voice": {
       "name": "@aldoborrero/pi-voice",
-      "version": "1.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": "*",
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
-    "extensions/pi-telegram": {
-      "name": "@aldoborrero/pi-telegram",
       "version": "1.0.0",
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
@@ -386,8 +375,6 @@
 
     "@aldoborrero/pi-git-checkpoint": ["@aldoborrero/pi-git-checkpoint@workspace:extensions/pi-git-checkpoint"],
 
-    "@aldoborrero/pi-github-search": ["@aldoborrero/pi-github-search@workspace:extensions/pi-github-search"],
-
     "@aldoborrero/pi-inline-bash": ["@aldoborrero/pi-inline-bash@workspace:extensions/pi-inline-bash"],
 
     "@aldoborrero/pi-loop": ["@aldoborrero/pi-loop@workspace:extensions/pi-loop"],
@@ -404,6 +391,8 @@
 
     "@aldoborrero/pi-suggest": ["@aldoborrero/pi-suggest@workspace:extensions/pi-suggest"],
 
+    "@aldoborrero/pi-telegram": ["@aldoborrero/pi-telegram@workspace:extensions/pi-telegram"],
+
     "@aldoborrero/pi-themes": ["@aldoborrero/pi-themes@workspace:extensions/pi-themes"],
 
     "@aldoborrero/pi-tuicr": ["@aldoborrero/pi-tuicr@workspace:extensions/pi-tuicr"],
@@ -411,8 +400,6 @@
     "@aldoborrero/pi-until": ["@aldoborrero/pi-until@workspace:extensions/pi-until"],
 
     "@aldoborrero/pi-voice": ["@aldoborrero/pi-voice@workspace:extensions/pi-voice"],
-
-    "@aldoborrero/pi-telegram": ["@aldoborrero/pi-telegram@workspace:extensions/pi-telegram"],
 
     "@aldoborrero/pi-web-tools": ["@aldoborrero/pi-web-tools@workspace:extensions/pi-web-tools"],
 
