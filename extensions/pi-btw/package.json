@@ -15,6 +15,9 @@
       "src/extension.ts"
     ]
   },
+  "dependencies": {
+    "@aldoborrero/pi-common": "*"
+  },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-ai": "*",
