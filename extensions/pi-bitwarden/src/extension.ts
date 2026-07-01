@@ -95,12 +95,25 @@ function runRbwUnlock(signal?: AbortSignal): Promise<void> {
     }
 
     // rbw unlock uses pinentry. If rbw is spawned with piped stdio, pinentry can
-    // fail with "Inappropriate ioctl for device" because it cannot talk to the
-    // real terminal. Attach the command explicitly to /dev/tty so pinentry has a
-    // controlling TTY while keeping the non-interactive rbw helpers piped.
+    // fail because it cannot talk to the real terminal. Attach to /dev/tty and,
+    // when util-linux `script` is available, run rbw in a fresh pseudo-terminal
+    // so pinentry behaves like it was launched from a normal interactive shell.
+    const unlockCommand = [
+      "TTY=$(tty)",
+      "export GPG_TTY=\"$TTY\"",
+      "gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1 || true",
+      "rbw unlock",
+    ].join("; ");
     const child = spawn(
       "sh",
-      ["-lc", "exec rbw unlock < /dev/tty > /dev/tty 2> /dev/tty"],
+      [
+        "-lc",
+        [
+          "exec < /dev/tty > /dev/tty 2> /dev/tty",
+          "if command -v script >/dev/null 2>&1; then exec script -qfec '" + unlockCommand + "' /dev/null; fi",
+          unlockCommand.replace("rbw unlock", "exec rbw unlock"),
+        ].join("; "),
+      ],
       {
         stdio: ["ignore", "ignore", "pipe"],
         env: { ...process.env, GPG_TTY: process.env.GPG_TTY || "/dev/tty" },
@@ -206,21 +219,21 @@ export default function (pi: ExtensionAPI) {
     const colors = createUiColors(ctx.ui.theme);
 
     if (!available) {
-      ctx.ui.setStatus("bitwarden", colors.danger("󰌾 missing"));
+      ctx.ui.setStatus("bitwarden", colors.danger("󰌾 rbw:missing"));
       return;
     }
 
     if (lastStatus === "ready") {
-      ctx.ui.setStatus("bitwarden", colors.success("󰌾 unlocked"));
+      ctx.ui.setStatus("bitwarden", colors.success("󰍁 rbw:unlocked"));
     } else {
-      ctx.ui.setStatus("bitwarden", colors.warning("󰌾 locked"));
+      ctx.ui.setStatus("bitwarden", colors.danger("󰌾 rbw:locked"));
     }
   }
 
   // ── Commands ──────────────────────────────────────────────────────────────
 
-  pi.registerCommand("bw", {
-    description: "Bitwarden vault: /bw [unlock|lock|sync|status]",
+  const bitwardenCommand: Parameters<typeof pi.registerCommand>[1] = {
+    description: "Bitwarden vault: /bw or /rbw [unlock|lock|sync|status]",
     getArgumentCompletions: (prefix: string) => {
       const values = ["unlock", "lock", "sync", "status"];
       const trimmed = prefix.trimStart().toLowerCase();
@@ -296,13 +309,17 @@ export default function (pi: ExtensionAPI) {
         `Bitwarden vault: ${status}`,
         "",
         "Commands:",
-        "  /bw unlock  - Unlock vault (via rbw-agent pinentry)",
-        "  /bw lock    - Lock vault",
-        "  /bw sync    - Sync with server",
+        "  /bw unlock   - Unlock vault (via rbw-agent pinentry)",
+        "  /bw lock     - Lock vault",
+        "  /bw sync     - Sync with server",
+        "  /rbw ...     - Alias for /bw",
       ];
       ctx.ui.notify(lines.join("\n"), "info");
     },
-  });
+  };
+
+  pi.registerCommand("bw", bitwardenCommand);
+  pi.registerCommand("rbw", bitwardenCommand);
 
   // ── Tools ─────────────────────────────────────────────────────────────────
 
