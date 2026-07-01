@@ -27,6 +27,7 @@ const MAX_BRANCH_WIDTH = 18;
 const GIT_CACHE_TTL_MS = 1_500;
 const RENDER_DEBOUNCE_MS = 75;
 const TPS_RENDER_DEBOUNCE_MS = 200;
+const GIT_ICON = "󰊢";
 
 const execFileAsync = promisify(execFile);
 
@@ -794,7 +795,7 @@ function buildLeftIdentity(
   let leftWidth = visibleWidth(leftParts[0]);
 
   if (layout.showBranch && state.workspace.shortBranch) {
-    const branchSegment = colors.separator(" │ ") + colors.primary(state.workspace.shortBranch);
+    const branchSegment = colors.separator(" │ ") + colors.primary(`${GIT_ICON} ${state.workspace.shortBranch}`);
     if (leftWidth + visibleWidth(branchSegment) <= availableLeft) {
       leftParts.push(branchSegment);
       leftWidth += visibleWidth(branchSegment);
