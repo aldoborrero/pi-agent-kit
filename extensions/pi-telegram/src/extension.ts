@@ -520,18 +520,18 @@ export default function telegramExtension(pi: ExtensionAPI) {
     const colors = createUiColors(ctx.ui.theme);
 
     if (!config.enabled) {
-      setStatus("telegram", colors.warning(" off"));
+      setStatus("telegram", colors.warning(" telegram:off"));
       return;
     }
     if (setupMode) {
-      setStatus("telegram", colors.warning(" setup"));
+      setStatus("telegram", colors.warning(" telegram:setup"));
       return;
     }
     if (!isConfigured(config)) {
-      setStatus("telegram", colors.danger(" unconfigured"));
+      setStatus("telegram", colors.danger(" telegram:unconfigured"));
       return;
     }
-    setStatus("telegram", colors.success(""));
+    setStatus("telegram", colors.success(" telegram:on"));
   }
 
   /**
