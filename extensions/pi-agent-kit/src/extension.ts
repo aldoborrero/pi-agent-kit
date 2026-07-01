@@ -7,7 +7,7 @@
  * against the same Pi host.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import registerAlias from "@aldoborrero/pi-alias/src/extension.ts";
 import registerAstGrep from "@aldoborrero/pi-ast-grep/src/extension.ts";
 import registerBitwarden from "@aldoborrero/pi-bitwarden/src/extension.ts";
@@ -32,8 +32,71 @@ import registerTelegram from "@aldoborrero/pi-telegram/src/extension.ts";
 import registerTuicr from "@aldoborrero/pi-tuicr/src/extension.ts";
 import registerUntil from "@aldoborrero/pi-until/src/extension.ts";
 import registerVoice from "@aldoborrero/pi-voice/src/extension.ts";
-import registerWorkflows from "@aldoborrero/pi-workflows/src/extension.ts";
+import {
+	createEffortState,
+	createWorkflowStorage,
+	createWorkflowTool,
+	installResultDelivery,
+	installTaskPanel,
+	installWorkflowEditor,
+	loadWorkflowSettings,
+	registerAllSavedWorkflows,
+	registerBuiltinWorkflows,
+	registerEffortCommand,
+	registerWorkflowCommands,
+	registerWorkflowModelsCommand,
+	saveWorkflowSettingsForCwd,
+	WorkflowManager,
+} from "@quintinshaw/pi-dynamic-workflows";
 import { once } from "./once.ts";
+
+function registerDynamicWorkflows(pi: ExtensionAPI): void {
+	const cwd = process.cwd();
+	const storage = createWorkflowStorage(cwd);
+	const settings = loadWorkflowSettings({ cwd });
+	const manager = new WorkflowManager({
+		cwd,
+		loadSavedWorkflow: (name) => storage.load(name)?.script,
+		defaultAgentTimeoutMs: settings.defaultAgentTimeoutMs ?? null,
+		concurrency: settings.defaultConcurrency,
+		defaultAgentRetries: settings.defaultAgentRetries,
+	});
+
+	const workflowTool = createWorkflowTool({ cwd, manager, storage });
+	pi.registerTool(workflowTool);
+
+	const effort = createEffortState();
+	registerWorkflowCommands(pi, manager, { storage, cwd, effort });
+	registerWorkflowModelsCommand(pi);
+	registerBuiltinWorkflows(pi, { cwd });
+	registerAllSavedWorkflows(pi, cwd, storage, manager);
+	registerEffortCommand(pi, effort);
+
+	let editorInstalled = false;
+	pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
+		const active = pi.getActiveTools();
+		if (!active.includes(workflowTool.name)) {
+			pi.setActiveTools([...active, workflowTool.name]);
+		}
+		manager.setMainModel(ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined);
+		try {
+			manager.setSessionId(ctx.sessionManager?.getSessionId());
+		} catch {
+			// sessionManager may be unavailable in some contexts — fall back to global history.
+		}
+		installResultDelivery(pi, manager);
+		installTaskPanel(pi, manager, ctx.ui, { storage, cwd, loadSettings: () => loadWorkflowSettings({ cwd }) });
+		if (!editorInstalled) {
+			installWorkflowEditor(pi, ctx.ui, effort, {
+				settingsStore: {
+					load: () => loadWorkflowSettings({ cwd }),
+					save: (nextSettings) => saveWorkflowSettingsForCwd(nextSettings, cwd),
+				},
+			});
+			editorInstalled = true;
+		}
+	});
+}
 
 type Factory = (pi: never) => void;
 
@@ -62,7 +125,7 @@ const MEMBERS: Factory[] = [
 	registerTuicr,
 	registerUntil,
 	registerVoice,
-	registerWorkflows,
+	registerDynamicWorkflows as Factory,
 ];
 
 export default function (pi: ExtensionAPI): void {

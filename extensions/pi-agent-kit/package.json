@@ -58,7 +58,7 @@
     "@aldoborrero/pi-themes": "*",
     "@aldoborrero/pi-telegram": "*",
     "@aldoborrero/pi-github-search": "*",
-    "@aldoborrero/pi-workflows": "*",
+    "@quintinshaw/pi-dynamic-workflows": "*",
     "@gotgenes/pi-permission-system": "*",
     "@juicesharp/rpiv-args": "*",
     "@narumitw/pi-goal": "*",
@@ -68,7 +68,8 @@
     "@xynogen/pix-ls": "*",
     "@xynogen/pix-optimizer": "*",
     "@xynogen/pix-themes": "*",
-    "@xynogen/pix-write": "*"
+    "@xynogen/pix-write": "*",
+    "typebox": "*"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",

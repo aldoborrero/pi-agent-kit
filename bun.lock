@@ -50,7 +50,7 @@
         "@aldoborrero/pi-tuicr": "*",
         "@aldoborrero/pi-until": "*",
         "@aldoborrero/pi-voice": "*",
-        "@aldoborrero/pi-workflows": "*",
+        "@quintinshaw/pi-dynamic-workflows": "*",
         "@gotgenes/pi-permission-system": "*",
         "@juicesharp/rpiv-args": "*",
         "@narumitw/pi-goal": "*",
@@ -61,6 +61,7 @@
         "@xynogen/pix-themes": "*",
         "@xynogen/pix-write": "*",
         "pi-web-access": "*",
+        "typebox": "*",
       },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
@@ -347,20 +348,6 @@
         "@earendil-works/pi-tui": "*",
       },
     },
-    "extensions/pi-workflows": {
-      "name": "@aldoborrero/pi-workflows",
-      "version": "1.0.0",
-      "dependencies": {
-        "acorn": "^8.16.0",
-        "gray-matter": "^4.0.3",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": "*",
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
   },
   "packages": {
     "@aldoborrero/pi-agent-kit": ["@aldoborrero/pi-agent-kit@workspace:extensions/pi-agent-kit"],
@@ -418,8 +405,6 @@
     "@aldoborrero/pi-voice": ["@aldoborrero/pi-voice@workspace:extensions/pi-voice"],
 
     "@aldoborrero/pi-web-tools": ["@aldoborrero/pi-web-tools@workspace:extensions/pi-web-tools"],
-
-    "@aldoborrero/pi-workflows": ["@aldoborrero/pi-workflows@workspace:extensions/pi-workflows"],
 
     "@anthropic-ai/sandbox-runtime": ["@anthropic-ai/sandbox-runtime@0.0.26", "", { "dependencies": { "@pondwader/socks5-server": "^1.0.10", "@types/lodash-es": "^4.17.12", "commander": "^12.1.0", "lodash-es": "^4.17.21", "shell-quote": "^1.8.3", "zod": "^3.24.1" }, "bin": { "srt": "dist/cli.js" } }, "sha512-DYV5LSsVMnzq0lbfaYMSpxZPUMAx4+hy343dRss+pVCLIfF62qOhxpYfZ5TmOk1GTDQm5f9wPprMNSStmnsV4w=="],
 
@@ -602,6 +587,8 @@
     "@protobufjs/pool": ["@protobufjs/pool@1.1.0", "", {}, "sha512-0kELaGSIDBKvcgS4zkjz1PeddatrjYcmMWOlAuAPwAeccUrPHdUqo/J6LiymHHEiJT5NrF1UVwxY14f+fy4WQw=="],
 
     "@protobufjs/utf8": ["@protobufjs/utf8@1.1.0", "", {}, "sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw=="],
+
+    "@quintinshaw/pi-dynamic-workflows": ["@quintinshaw/pi-dynamic-workflows@2.9.0", "", { "dependencies": { "acorn": "^8.16.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-ckOgaPKFVdtOajZrOPdR5U+WlIWwo/Q4zs+r3TWnxCR5xycLkO5plWLHx0AGKyyslM1IeBGtOSTjmS95thRnzg=="],
 
     "@selderee/plugin-htmlparser2": ["@selderee/plugin-htmlparser2@0.12.0", "", { "dependencies": { "domelementtype": "~2.3.0", "domhandler": "~5.0.3" }, "peerDependencies": { "selderee": "~0.12.0" } }, "sha512-oELmoyA6ML9jDRMV3kgcMQFKxUfBU0yFVn6yTctVaLT5ygXnxH52I3TZEgV9EhXJC68/uFvE5Daj1/25c0Xa/A=="],
 
