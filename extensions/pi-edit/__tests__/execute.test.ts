@@ -388,3 +388,180 @@ describe("execute — fileChanges: patch with add/update/delete", () => {
     });
   });
 });
+
+describe("execute — native Pi edits[]", () => {
+  test("matches every edit against the original, regardless of order or inserted text", async () => {
+    await withTmp(async (dir) => {
+      await writeFile(join(dir, "a.ts"), "alpha\nbeta\n");
+      const result = (await execute(
+        "native",
+        {
+          path: "a.ts",
+          edits: [
+            { oldText: "beta", newText: "BETA" },
+            { oldText: "alpha", newText: "beta" },
+          ],
+        },
+        undefined,
+        undefined,
+        { cwd: dir },
+      )) as ResultWithFileChanges & { details: { patch: string } };
+      assert.equal(await readFile(join(dir, "a.ts"), "utf8"), "beta\nBETA\n");
+      assert.match(result.details.patch, /--- a.ts/);
+      assert.match(result.details.diff, /BETA/);
+      assert.deepEqual(result.details.fileChanges, [
+        {
+          path: join(dir, "a.ts"),
+          oldContent: "alpha\nbeta\n",
+          newContent: "beta\nBETA\n",
+          firstChangedLine: 1,
+          language: lang("a.ts"),
+        },
+      ]);
+    });
+  });
+
+  for (const [name, content, edits, error] of [
+    [
+      "overlapping",
+      "abcdef\n",
+      [
+        { oldText: "abc", newText: "X" },
+        { oldText: "bc", newText: "Y" },
+      ],
+      /overlap/,
+    ],
+    [
+      "ambiguous",
+      "foo\nfoo\n",
+      [{ oldText: "foo", newText: "X" }],
+      /occurrences/,
+    ],
+    ["empty", "foo\n", [{ oldText: "", newText: "X" }], /must not be empty/],
+    ["no-op", "foo\n", [{ oldText: "foo", newText: "foo" }], /No changes/],
+    [
+      "incremental",
+      "foo\n",
+      [
+        { oldText: "foo", newText: "bar" },
+        { oldText: "bar", newText: "baz" },
+      ],
+      /Could not find/,
+    ],
+  ] as const) {
+    test(`${name} edits fail without writing`, async () => {
+      await withTmp(async (dir) => {
+        const file = join(dir, "a.txt");
+        await writeFile(file, content);
+        await assert.rejects(
+          () =>
+            execute("invalid", { path: "a.txt", edits }, undefined, undefined, {
+              cwd: dir,
+            }),
+          error,
+        );
+        assert.equal(await readFile(file, "utf8"), content);
+      });
+    });
+  }
+
+  test("preserves BOM/CRLF and accepts CRLF in arguments", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "a.txt");
+      await writeFile(file, "\uFEFFalpha\r\nbeta\r\n");
+      await execute(
+        "encoding",
+        {
+          path: "a.txt",
+          edits: [{ oldText: "alpha\r\n", newText: "ALPHA\r\n" }],
+        },
+        undefined,
+        undefined,
+        { cwd: dir },
+      );
+      assert.equal(await readFile(file, "utf8"), "\uFEFFALPHA\r\nbeta\r\n");
+    });
+  });
+
+  test("combined fuzzy matching preserves untouched Unicode and trailing whitespace", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "a.txt");
+      const untouched = "unchanged ‘quotes’ — \uFB01  \n";
+      await writeFile(
+        file,
+        untouched + "target ‘value’ — \uFB01  \n" + untouched,
+      );
+      const result = (await execute(
+        "fuzzy",
+        {
+          path: "a.txt",
+          edits: [{ oldText: "target 'value' - fi", newText: "changed" }],
+        },
+        undefined,
+        undefined,
+        { cwd: dir },
+      )) as ResultWithFileChanges;
+      assert.equal(
+        await readFile(file, "utf8"),
+        untouched + "changed\n" + untouched,
+      );
+      assert.equal(
+        result.details.fileChanges[0]!.newContent,
+        untouched + "changed\n" + untouched,
+      );
+    });
+  });
+
+  test("pre-aborted calls do not mutate", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "a.txt");
+      await writeFile(file, "alpha");
+      await assert.rejects(
+        () =>
+          execute(
+            "abort",
+            { path: "a.txt", edits: [{ oldText: "alpha", newText: "beta" }] },
+            AbortSignal.abort(),
+            undefined,
+            { cwd: dir },
+          ),
+        /aborted/,
+      );
+      assert.equal(await readFile(file, "utf8"), "alpha");
+    });
+  });
+
+  test("native and legacy edits share Pi's mutation queue", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "a.txt");
+      await writeFile(file, "alpha\nbeta\ngamma\n");
+      await Promise.all([
+        execute(
+          "one",
+          { path: "a.txt", edits: [{ oldText: "alpha", newText: "ALPHA" }] },
+          undefined,
+          undefined,
+          { cwd: dir },
+        ),
+        execute(
+          "two",
+          { path: "a.txt", oldText: "beta", newText: "BETA" },
+          undefined,
+          undefined,
+          { cwd: dir },
+        ),
+        execute(
+          "three",
+          {
+            patch:
+              "*** Begin Patch\n*** Update File: a.txt\n@@\n-gamma\n+GAMMA\n*** End Patch",
+          },
+          undefined,
+          undefined,
+          { cwd: dir },
+        ),
+      ]);
+      assert.equal(await readFile(file, "utf8"), "ALPHA\nBETA\nGAMMA\n");
+    });
+  });
+});

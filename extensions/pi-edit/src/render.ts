@@ -10,6 +10,14 @@
  * `renderCall` only has the request args and shows a header summary.
  */
 
+import { createHash } from "node:crypto";
+import type {
+  Theme,
+  ThemeColor,
+  ToolDefinition,
+  ToolRenderResultOptions,
+} from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { MAX_RENDER_LINES } from "@xynogen/pix-pretty/config";
 import { parseDiff } from "@xynogen/pix-pretty/diff";
 import {
@@ -28,48 +36,23 @@ import {
 
 import type { FileChange } from "./types.ts";
 
-// ---------------------------------------------------------------------------
-// Type stubs — kept minimal so the module loads cleanly in tests without
-// a real pi-tui native build.
-// ---------------------------------------------------------------------------
+type ToolRenderContext = Parameters<
+  NonNullable<ToolDefinition["renderCall"]>
+>[2];
 
-// We rely on ctx.lastComponent being provided at runtime (the real TUI always
-// provides it). In tests, the smoke harness supplies a StubText. The lazy
-// factory below is only called when lastComponent is absent.
-function makeFallbackText(): { setText(v: string): void } {
-  // Try to load pi-tui's Text lazily. If the native module fails (e.g. in a
-  // test environment without the native addon), fall back to a plain object.
-  try {
-    const { Text } = require("@earendil-works/pi-tui") as {
-      Text: new (
-        t: string,
-        px: number,
-        py: number,
-      ) => { setText(v: string): void };
-    };
-    return new Text("", 0, 0);
-  } catch {
-    return { setText(_v: string) {} };
-  }
+// pix-pretty accepts string color keys; its renderer keys are Pi ThemeColors.
+function prettyTheme(theme: Theme) {
+  return {
+    fg: (key: string, text: string) => theme.fg(key as ThemeColor, text),
+    getFgAnsi: (key: string) => theme.getFgAnsi(key as ThemeColor),
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Lightweight theme / context interfaces (mirrors pix-pretty's ThemeLike /
-// RenderContextLike without importing the private pix-pretty types package).
-// ---------------------------------------------------------------------------
-
-interface ThemeLike {
-  fg(key: string, s: string): string;
-  bold(s: string): string;
-  getFgAnsi?: (key: string) => string;
-}
-
-interface RenderCtx {
-  toolCallId?: string;
-  isError?: boolean;
-  lastComponent?: { setText(v: string): void };
-  state: Record<string, unknown>;
-  invalidate(): void;
+// Reuse only Text components; Pi's lastComponent can be any Component.
+function textComponent(ctx: ToolRenderContext): Text {
+  return ctx.lastComponent instanceof Text
+    ? ctx.lastComponent
+    : new Text("", 0, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -82,16 +65,18 @@ interface RenderCtx {
  */
 export function renderCall(
   args: Record<string, unknown>,
-  theme: ThemeLike,
-  ctx: RenderCtx,
-): { setText(v: string): void } {
-  const text = ctx.lastComponent ?? makeFallbackText();
+  theme: Theme,
+  ctx: ToolRenderContext,
+): Text {
+  const text = textComponent(ctx);
   const fp = String(args.path ?? args.file_path ?? "");
   const hdr = `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", fp)}`;
 
   let suffix: string;
   if (args.patch) {
     suffix = "patch";
+  } else if (Array.isArray(args.edits)) {
+    suffix = `${args.edits.length} edit${args.edits.length === 1 ? "" : "s"}`;
   } else if (args.multi) {
     const multiLen = Array.isArray(args.multi) ? args.multi.length : 0;
     const extra = args.oldText ? 1 : 0;
@@ -121,19 +106,20 @@ export function renderResult(
     content?: Array<{ type: string; text?: string }>;
     details?: unknown;
   },
-  _opt: unknown,
-  theme: ThemeLike,
-  ctx: RenderCtx,
-): { setText(v: string): void } {
-  const text = ctx.lastComponent ?? makeFallbackText();
+  options: ToolRenderResultOptions,
+  theme: Theme,
+  ctx: ToolRenderContext,
+): Text {
+  const text = textComponent(ctx);
 
   // Error branch — show the error message and return immediately.
   if (ctx.isError) {
+    ctx.state._piek = undefined;
     text.setText(
       renderToolError(
         getTextContent(result as Parameters<typeof getTextContent>[0]) ||
           "Error",
-        theme,
+        prettyTheme(theme),
       ),
     );
     return text;
@@ -146,6 +132,7 @@ export function renderResult(
 
   // Empty fileChanges — show a one-line fallback from the text content.
   if (fcs.length === 0) {
+    ctx.state._piek = undefined;
     const fallback = result.content?.[0];
     const fallbackText =
       fallback && isTextContent(fallback as Parameters<typeof isTextContent>[0])
@@ -161,10 +148,8 @@ export function renderResult(
 
   // Build a cache key from theme colours + terminal width + file change
   // content signatures. A change in any of these triggers a fresh render.
-  const sig = fcs
-    .map((fc) => `${fc.path}:${fc.oldContent.length}:${fc.newContent.length}`)
-    .join("|");
-  const key = `pied:${diffThemeCacheKey(theme)}:${termW()}:${fcs.length}:${sig}`;
+  const sig = createHash("sha256").update(JSON.stringify(fcs)).digest("hex");
+  const key = `pied:${diffThemeCacheKey(prettyTheme(theme))}:${termW()}:${options.expanded}:${sig}`;
 
   if (ctx.state._piek !== key) {
     ctx.state._piek = key;
@@ -177,16 +162,17 @@ export function renderResult(
       trackInvalidator(ctx.toolCallId, ctx.invalidate);
     }
 
-    const dc = resolveDiffColors(theme);
+    const dc = resolveDiffColors(prettyTheme(theme));
     // Capture the key at the time of dispatch; stale-guard checks it on resolve.
     const capturedKey = key;
 
     Promise.all(
       fcs.map((fc) =>
         renderSplit(
-          parseDiff(fc.oldContent, fc.newContent, 3, fc.firstChangedLine ?? 0),
+          // fileChanges contains whole files, not snippets: no line offset.
+          parseDiff(fc.oldContent, fc.newContent, 3),
           fc.language as string | undefined,
-          MAX_RENDER_LINES,
+          options.expanded ? Number.POSITIVE_INFINITY : MAX_RENDER_LINES,
           dc,
         ),
       ),

@@ -1,18 +1,34 @@
 # pi-edit — Enhanced Edit Tool
 
-A pi extension that replaces the built-in `edit` tool with a more capable and safer engine. Supports the original single-file edit, **batch edits** across multiple files via a `multi` array, and **Codex-style patch payloads** — all three modes run through one consistent preflight-and-rollback safety pipeline.
+A Pi extension that extends the built-in `edit` tool with **cross-file batches**, **Codex-style patches**, and split-diff rendering. Requires Pi **0.87.1+**. Supports the current `path + edits[]` API as well as the legacy `path/oldText/newText` and `multi` formats.
 
 ## Overview
 
-The standard `edit` tool handles one `oldText → newText` replacement per call. `pi-edit` extends it with three modes so an agent can make many targeted changes in a single tool call, dramatically reducing round-trips and the risk of partial edits leaving the codebase in an inconsistent state.
+Pi already supports multiple disjoint replacements in one file via `edits[]`. This mode delegates to `createEditToolDefinition()` from the installed Pi runtime rather than reimplementing its matching and safety checks.
 
-All modes share a **preflight pass** that applies the operation to an in-memory virtual filesystem first. If anything fails — wrong `oldText`, anchor not found, file not writable — no real files are touched.
+Legacy and patch modes retain a **virtual preflight pass**. All modes use Pi’s shared file-mutation queue; legacy batches hold locks across preflight, application, and rollback. Locks coordinate with Pi tools, not arbitrary external filesystem writers.
 
 ## Modes
 
-### 1. Classic (single edit)
+### 1. Native (recommended)
 
-Identical to the built-in `edit` tool. Provide `path`, `oldText`, and `newText`.
+```json
+{
+  "path": "src/index.ts",
+  "edits": [
+    { "oldText": "const foo = 1;", "newText": "const foo = 2;" },
+    { "oldText": "const bar = 3;", "newText": "const bar = 4;" }
+  ]
+}
+```
+
+Every replacement targets the **original file**, not the result of previous replacements. Each `oldText` must be unique and edits must not overlap. Missing, ambiguous, overlapping, empty, and net no-op replacements fail before writing. Pi handles combined Unicode/whitespace fuzzy matching, preserves unchanged lines, and restores BOM/line endings. Native results include Pi's unified `details.patch` plus `details.fileChanges` for split-diff rendering.
+
+The argument preparation hook also accepts `edits` encoded as a JSON string or a single replacement object. `edits` cannot be mixed with legacy replacement fields, `multi`, or `patch`.
+
+### 2. Classic (legacy single edit)
+
+Provide `path`, `oldText`, and `newText`. This retains pi-edit's legacy engine semantics; use `edits[]` for current Pi behavior.
 
 ```jsonc
 {
@@ -22,7 +38,7 @@ Identical to the built-in `edit` tool. Provide `path`, `oldText`, and `newText`.
 }
 ```
 
-### 2. Multi (batch array)
+### 3. Multi (legacy batch array)
 
 Pass a `multi` array of edit objects. Each item has `path`, `oldText`, and `newText`. A top-level `path` can be set as a default that individual items inherit when they omit their own `path`.
 
@@ -54,9 +70,9 @@ You can also mix a top-level single edit with `multi` — the top-level edit is 
 }
 ```
 
-Multi mode uses **partial success**: if one edit's `oldText` is not found, the remaining edits in the batch still apply. Failures are reported per-edit rather than aborting the whole batch. Atomic rollback fires only on catastrophic errors (I/O, abort signal) — not on an expected "text not found".
+Multi mode first validates the entire batch: if any edit fails preflight, no files are changed. During the real apply pass, unexpected matching failures can be reported per edit; I/O and abort failures trigger best-effort rollback. Unlike native `edits[]`, legacy `multi` retains positional duplicate matching and redundant-edit skipping.
 
-### 3. Patch (Codex-style)
+### 4. Patch (Codex-style)
 
 Pass a `patch` string delimited by `*** Begin Patch` / `*** End Patch`. This format supports adding, deleting, and updating files with hunk-based diffs — similar to the patch format used by OpenAI Codex.
 
@@ -103,6 +119,7 @@ The patch engine implements a pragmatic subset of the Codex `apply_patch` format
 | `path`    | `string` (optional)     | Target file path (absolute or relative to cwd). Serves as the default path for `multi` items.               |
 | `oldText` | `string` (optional)     | Exact text to find and replace. Must match including all whitespace and newlines.                            |
 | `newText` | `string` (optional)     | Replacement text.                                                                                            |
+| `edits`   | `{ oldText, newText }[]` (optional) | Native single-file replacements against the original content; requires `path`. |
 | `multi`   | `EditItem[]` (optional) | Array of `{ path?, oldText, newText }` objects for batch mode.                                               |
 | `patch`   | `string` (optional)     | Codex-style patch payload (`*** Begin Patch … *** End Patch`). Mutually exclusive with all other parameters. |
 
@@ -120,7 +137,7 @@ The patch engine implements a pragmatic subset of the Codex `apply_patch` format
 
 | Situation                                                            | Behaviour                                                         |
 | -------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `patch` used together with `path`/`oldText`/`newText`/`multi`        | Throws immediately — parameters are mutually exclusive            |
+| `patch` used together with `path`/`oldText`/`newText`/`edits`/`multi`        | Throws immediately — parameters are mutually exclusive            |
 | Incomplete top-level edit (e.g. `path` + `oldText` but no `newText`) | Throws listing the missing fields                                 |
 | `multi` item missing `path` and no top-level `path` set              | Throws identifying which item is affected                         |
 | `oldText` not found in file (single mode)                            | Preflight throws; no files are modified                           |
@@ -131,6 +148,8 @@ The patch engine implements a pragmatic subset of the Codex `apply_patch` format
 | `*** Move to:` operation in patch                                    | Throws — not supported                                            |
 
 ## Encoding
+
+Native `edits[]` uses Pi’s encoding handling (including lone `\r` normalization). The following describes the legacy and patch engines.
 
 `pi-edit` preserves the byte encoding of every file it touches:
 
@@ -144,7 +163,7 @@ The patch engine implements a pragmatic subset of the Codex `apply_patch` format
 
 ### Preflight Validation
 
-Before writing a single byte to disk, every edit is applied to an in-memory virtual filesystem. If any replacement fails — wrong `oldText`, file not found, missing context — the operation is aborted and no real files are modified. The preflight also checks write permissions against the real filesystem so read-only targets fail fast.
+For legacy and patch modes, before writing to disk, every edit is applied to an in-memory virtual filesystem. If any replacement fails — wrong `oldText`, file not found, missing context — the operation is aborted and no real files are modified. The preflight also checks write permissions against the real filesystem so read-only targets fail fast.
 
 ### Atomic Multi-File Rollback
 
@@ -185,12 +204,14 @@ When running inside pi's TUI, `pi-edit` renders syntax-highlighted, side-by-side
 
 ### How it works
 
-- **`renderCall`** — shows a one-line header with the file path and edit mode (`edit`, `N edits`, or `patch`) as soon as the tool call is dispatched.
+- **`renderCall`** — shows a one-line header with the file path and edit mode (`edit`, `N edits` (including native `edits[]`), or `patch`) as soon as the tool call is dispatched.
 - **`renderResult`** — reads `details.fileChanges` from the tool result and renders one split-diff block per changed file, separated by `···` dividers. Rendering is async; the TUI displays a `rendering diff…` placeholder until the diff blocks are ready, then redraws via `ctx.invalidate()`.
 
 ### Accuracy guarantee
 
 The split diffs are generated from `details.fileChanges`, which contains the **actual before→after content written to disk** — not the raw `oldText`/`newText` parameters. This means what you see in the TUI accurately reflects the real outcome, including encoding normalization and positional ordering.
+
+The renderer uses Pi’s current component/context API with `renderShell: "self"`. Expanding a result removes the collapsed line limit. Cache keys include the actual content, theme, width and expanded state, and whole-file diffs retain their original line numbers.
 
 ### Resize handling
 
@@ -227,6 +248,15 @@ Outside a TUI context (e.g. plain text output, CI), the tool returns a summary s
 | --------------------------------- | --------------------------------------------------- |
 | `@earendil-works/pi-coding-agent` | `ExtensionAPI` type and tool registration (peer)    |
 | `@earendil-works/pi-tui`          | TUI `Text` component used by the render hooks (peer) |
-| `@sinclair/typebox`               | Runtime JSON Schema / TypeBox parameter definitions (peer) |
+| `typebox`               | Runtime JSON Schema / TypeBox parameter definitions (peer) |
 | `@xynogen/pix-pretty`             | Syntax-highlighted split-diff rendering in the TUI  |
 | `diff`                            | Line-level diff generation for result output        |
+
+
+## Development reference
+
+Updated against `.scratch/pi-mono` at `2b0a123de` (Pi 0.87.1), verified against `origin/main` and npm's `latest` tag. The extension uses public Pi exports at runtime; it does not import from `.scratch`.
+
+```sh
+bun test extensions/pi-edit
+```

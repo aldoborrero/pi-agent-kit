@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { planEdits } from "../src/extension.ts";
+import { planEdits, prepareArguments } from "../src/extension.ts";
 
 describe("planEdits — mutually exclusive params", () => {
   test("patch + path together → throws /mutually exclusive/", () => {
@@ -157,5 +157,73 @@ describe("planEdits — no edits provided", () => {
 
   test("only multi:[] → throws /No edits provided/", () => {
     assert.throws(() => planEdits({ multi: [] }), /No edits provided/);
+  });
+});
+
+describe("planEdits — Pi edits[]", () => {
+  test("dispatches edits[] without translating to positional multi", () => {
+    const edits = [{ oldText: "a", newText: "b" }];
+    assert.deepEqual(planEdits({ path: "a.ts", edits }), {
+      mode: "native",
+      path: "a.ts",
+      edits,
+    });
+  });
+
+  test("requires path and at least one edit", () => {
+    assert.throws(
+      () => planEdits({ edits: [{ oldText: "a", newText: "b" }] }),
+      /requires a path/,
+    );
+    assert.throws(() => planEdits({ path: "a.ts", edits: [] }), /at least one/);
+  });
+
+  test("rejects mixed native and legacy modes", () => {
+    const args = { path: "a.ts", edits: [{ oldText: "a", newText: "b" }] };
+    for (const extra of [
+      { oldText: "a" },
+      { newText: "b" },
+      { multi: [] },
+      { patch: "*** Begin Patch\n*** End Patch" },
+    ]) {
+      assert.throws(
+        () => planEdits({ ...args, ...extra }),
+        /mutually exclusive/,
+      );
+    }
+  });
+});
+
+describe("prepareArguments — Pi 0.87 model compatibility", () => {
+  test("accepts arrays, JSON arrays, single objects and JSON objects", () => {
+    const edit = { oldText: "a", newText: "b" };
+    for (const edits of [
+      [edit],
+      JSON.stringify([edit]),
+      edit,
+      JSON.stringify(edit),
+    ]) {
+      const input = { path: "a.ts", edits };
+      assert.deepEqual(prepareArguments(input), {
+        path: "a.ts",
+        edits: [edit],
+      });
+      assert.equal(input.edits, edits, "does not mutate the raw call");
+    }
+  });
+
+  test("leaves invalid values for schema validation", () => {
+    for (const edits of ["not json", 42, null, { oldText: "a" }]) {
+      assert.deepEqual(prepareArguments({ edits }), { edits });
+    }
+  });
+
+  test("keeps legacy and patch inputs unchanged", () => {
+    for (const input of [
+      { path: "a.ts", oldText: "a", newText: "b" },
+      { multi: [{ path: "a.ts", oldText: "a", newText: "b" }] },
+      { patch: "*** Begin Patch\n*** End Patch" },
+    ])
+      assert.deepEqual(prepareArguments(input), input);
   });
 });
