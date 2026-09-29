@@ -8,9 +8,9 @@ export async function withMutationQueues<T>(
   cwd: string,
   fn: () => Promise<T>,
 ): Promise<T> {
+  const absolutePaths = [...new Set(paths.map((path) => resolve(cwd, path)))];
   const keys = await Promise.all(
-    paths.map(async (path) => {
-      const absolute = resolve(cwd, path);
+    absolutePaths.map(async (absolute) => {
       try {
         return await realpath(absolute);
       } catch (error) {

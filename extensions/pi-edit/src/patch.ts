@@ -511,7 +511,10 @@ function buildOpResult(
 ): PatchOpResult {
   const result: PatchOpResult = { path, message };
   if (collectDiff) {
-    const { diff, firstChangedLine } = generateDiffString(oldText, newText);
+    const { diff, firstChangedLine, preview } = generateDiffString(
+      oldText,
+      newText,
+    );
     result.diff = diff;
     result.firstChangedLine = firstChangedLine;
     onFileChange?.({
@@ -519,6 +522,7 @@ function buildOpResult(
       oldContent: oldText,
       newContent: newText,
       firstChangedLine,
+      preview,
     });
   }
   return result;

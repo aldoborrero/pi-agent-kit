@@ -13,7 +13,11 @@ import { describe, test } from "node:test";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { applyClassicEdits, findActualString } from "../src/classic.ts";
+import {
+  applyClassicEdits,
+  countOccurrences,
+  findActualString,
+} from "../src/classic.ts";
 import type { EditItem, Workspace } from "../src/types.ts";
 import { createRealWorkspace } from "../src/workspace.ts";
 
@@ -209,6 +213,46 @@ describe("applyClassicEdits — quote fallback (findActualString)", () => {
   });
 });
 
+describe("applyClassicEdits — unicode dash/space fallback (findActualString)", () => {
+  test("en/em-dash oldText matches ASCII-hyphen file content", () => {
+    const content = "range 1-10 done"; // ASCII hyphen in the file
+    const enDash = findActualString(content, "range 1–10 done", 0); // U+2013
+    assert.ok(enDash, "en-dash should match ASCII hyphen");
+    assert.equal(enDash!.pos, 0);
+    const emDash = findActualString(content, "range 1—10 done", 0); // U+2014
+    assert.ok(emDash, "em-dash should match ASCII hyphen");
+    assert.equal(emDash!.pos, 0);
+  });
+
+  test("ASCII-hyphen oldText matches en-dash file content", () => {
+    const content = "range 1–10 done"; // en-dash (U+2013) in the file
+    const match = findActualString(content, "range 1-10 done", 0);
+    assert.ok(match, "ASCII hyphen should match en-dash");
+    assert.equal(match!.pos, 0);
+  });
+
+  test("non-breaking-space oldText matches regular-space file content", () => {
+    const content = "foo bar baz"; // regular spaces in the file
+    const match = findActualString(content, "foo bar baz", 0); // NBSP
+    assert.ok(match, "NBSP should match regular space");
+    assert.equal(match!.pos, 0);
+  });
+
+  test("applies edit when oldText uses an em-dash and file uses a hyphen", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "dash.txt");
+      await writeFile(file, "cost is 5-10 dollars\n"); // ASCII hyphen
+
+      const edits: EditItem[] = [
+        { path: "dash.txt", oldText: "5—10", newText: "5 to 10" }, // U+2014
+      ];
+      const results = await applyClassicEdits(edits, makeWorkspace(), dir);
+      assert.equal(results[0]!.success, true);
+      assert.equal(await readFile(file, "utf-8"), "cost is 5 to 10 dollars\n");
+    });
+  });
+});
+
 describe("applyClassicEdits — read-only file", () => {
   test("rejects before any mutation when target is read-only", async () => {
     await withTmp(async (dir) => {
@@ -360,6 +404,105 @@ describe("applyClassicEdits — onFileChange callback", () => {
   });
 });
 
+describe("applyClassicEdits — uniqueness guard (built-in contract)", () => {
+  test("ambiguous single oldText (2+ occurrences) errors instead of editing the first", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "dup.txt");
+      await writeFile(file, "foo\nfoo\n");
+
+      const edits: EditItem[] = [
+        { path: "dup.txt", oldText: "foo", newText: "BAR" },
+      ];
+      await assert.rejects(
+        () => applyClassicEdits(edits, makeWorkspace(), dir),
+        /Found 2 occurrences of the text.*must be unique/s,
+      );
+      // File must be untouched.
+      assert.equal(await readFile(file, "utf-8"), "foo\nfoo\n");
+    });
+  });
+
+  test("unique oldText still applies normally", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "uniq.txt");
+      await writeFile(file, "alpha\nbeta\ngamma\n");
+
+      const edits: EditItem[] = [
+        { path: "uniq.txt", oldText: "beta", newText: "BETA" },
+      ];
+      const results = await applyClassicEdits(edits, makeWorkspace(), dir);
+      assert.equal(results[0]!.success, true);
+      assert.equal(await readFile(file, "utf-8"), "alpha\nBETA\ngamma\n");
+    });
+  });
+
+  test("positional multi-edit consumes duplicate occurrences (no false ambiguity)", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "pos.txt");
+      await writeFile(file, "foo\nfoo\n");
+
+      // Two edits for the same oldText: each consumes one occurrence in order.
+      const edits: EditItem[] = [
+        { path: "pos.txt", oldText: "foo", newText: "ONE" },
+        { path: "pos.txt", oldText: "foo", newText: "TWO" },
+      ];
+      const results = await applyClassicEdits(edits, makeWorkspace(), dir);
+      assert.equal(
+        results.every((r) => r.success),
+        true,
+      );
+      assert.equal(await readFile(file, "utf-8"), "ONE\nTWO\n");
+    });
+  });
+
+  test("more occurrences than edits is still ambiguous", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "over.txt");
+      await writeFile(file, "foo\nfoo\nfoo\n");
+
+      // Only two edits target three occurrences — the extra one is un-targeted.
+      const edits: EditItem[] = [
+        { path: "over.txt", oldText: "foo", newText: "ONE" },
+        { path: "over.txt", oldText: "foo", newText: "TWO" },
+      ];
+      await assert.rejects(
+        () =>
+          applyClassicEdits(edits, makeWorkspace(), dir, undefined, {
+            rollbackOnError: true,
+          }),
+        /Found 3 occurrences of the text.*must be unique/s,
+      );
+      assert.equal(await readFile(file, "utf-8"), "foo\nfoo\nfoo\n");
+    });
+  });
+
+  test("countOccurrences counts non-overlapping matches", () => {
+    assert.equal(countOccurrences("foo foo foo", "foo"), 3);
+    assert.equal(countOccurrences("foo bar", "foo"), 1);
+    assert.equal(countOccurrences("nothing", "foo"), 0);
+    assert.equal(countOccurrences("foo foo", ""), 0);
+  });
+});
+
+describe("applyClassicEdits — empty oldText guard (built-in contract)", () => {
+  test("empty oldText errors instead of inserting at file start", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "empty.txt");
+      await writeFile(file, "keep me\n");
+
+      const edits: EditItem[] = [
+        { path: "empty.txt", oldText: "", newText: "INSERTED" },
+      ];
+      await assert.rejects(
+        () => applyClassicEdits(edits, makeWorkspace(), dir),
+        /oldText must not be empty/,
+      );
+      // File must be untouched — no insertion at offset 0.
+      assert.equal(await readFile(file, "utf-8"), "keep me\n");
+    });
+  });
+});
+
 describe("applyClassicEdits — CRLF encoding round-trip", () => {
   test("edit succeeds against LF-normalized view and file retains CRLF on disk", async () => {
     await withTmp(async (dir) => {
@@ -386,5 +529,189 @@ describe("applyClassicEdits — CRLF encoding round-trip", () => {
       assert.ok(raw.includes("\r\n"), "file on disk must still contain CRLF");
       assert.equal(raw, "HI WORLD\r\nFOO BAR\r\n");
     });
+  });
+});
+
+describe("matching — progress and offset regressions", () => {
+  test("whitespace-only fuzzy searches terminate in a bounded child process", async () => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const module = new URL("../src/classic.ts", import.meta.url).href;
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        "--eval",
+        `
+      const { countOccurrences } = await import(${JSON.stringify(module)});
+      console.log(JSON.stringify([" ", "\\t", "\\u00a0", "   "].map(s => countOccurrences("abc", s))));
+    `,
+      ],
+      { timeout: 3000 },
+    );
+    assert.deepEqual(JSON.parse(stdout), [0, 0, 0, 0]);
+  });
+
+  test("exact whitespace replacements remain valid", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "spaces");
+      await writeFile(file, "a  b\n");
+      await applyClassicEdits(
+        [{ path: file, oldText: "  ", newText: " " }],
+        makeWorkspace(),
+        dir,
+      );
+      assert.equal(await readFile(file, "utf8"), "a b\n");
+    });
+  });
+
+  test("fuzzy matches never point before the requested offset or past EOF", () => {
+    assert.equal(findActualString("hello  \nworld\n", "hello\n", 1), undefined);
+    assert.equal(findActualString("hello  \n", "hello\n", 100), undefined);
+    assert.equal(findActualString("abc", "", 0), undefined);
+  });
+
+  test("length-changing line fallback does not consume an extra newline", () => {
+    const content = "prefix  \nhello  \n\ntail\n";
+    const match = findActualString(content, "hello\n", 0);
+    assert.ok(match);
+    assert.equal(match.actualOldText, "hello  \n");
+    assert.equal(
+      content.slice(match.pos + match.actualOldText.length),
+      "\ntail\n",
+    );
+  });
+});
+
+describe("matching — bounded uniqueness and prepared plans", () => {
+  test("stops as soon as ambiguity is established", () => {
+    assert.equal(countOccurrences("foo ".repeat(10000), "foo", 0, 2), 2);
+    assert.equal(countOccurrences("foo foo foo", "foo", 4, 2), 2);
+  });
+
+  test("fuzzy variants before an exact occurrence still count as ambiguous", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "quotes");
+      const original = "say ‘hi’\nsay 'hi'\n";
+      await writeFile(file, original);
+      await assert.rejects(
+        () =>
+          applyClassicEdits(
+            [{ path: file, oldText: "say 'hi'", newText: "done" }],
+            makeWorkspace(),
+            dir,
+          ),
+        /occurrences/,
+      );
+      assert.equal(await readFile(file, "utf8"), original);
+    });
+  });
+
+  test("prepared plans revalidate contents and inputs before reuse", async () => {
+    const { createVirtualWorkspace } = await import("../src/workspace.ts");
+    await withTmp(async (dir) => {
+      const file = join(dir, "a");
+      const edits = [{ path: file, oldText: "old", newText: "new" }];
+      const prepared = new Map();
+      await writeFile(file, "prefix\nold\n");
+      await applyClassicEdits(
+        edits,
+        createVirtualWorkspace(dir),
+        dir,
+        undefined,
+        { onPrepared: (path, plan) => prepared.set(path, plan) },
+      );
+      assert.equal(prepared.size, 1);
+      await applyClassicEdits(edits, makeWorkspace(), dir, undefined, {
+        prepared,
+      });
+      assert.equal(await readFile(file, "utf8"), "prefix\nnew\n");
+      // An external modification must not be overwritten by the cached snapshot.
+      await writeFile(file, "external\nold\n");
+      await applyClassicEdits(edits, makeWorkspace(), dir, undefined, {
+        prepared,
+      });
+      assert.equal(await readFile(file, "utf8"), "external\nnew\n");
+      await writeFile(file, "prefix\nold\n");
+      await applyClassicEdits(
+        [{ ...edits[0]!, newText: "different" }],
+        makeWorkspace(),
+        dir,
+        undefined,
+        { prepared },
+      );
+      assert.equal(await readFile(file, "utf8"), "prefix\ndifferent\n");
+    });
+  });
+
+  test("prepared plans still roll back on later write failure", async () => {
+    const { createVirtualWorkspace } = await import("../src/workspace.ts");
+    await withTmp(async (dir) => {
+      const a = join(dir, "a"),
+        b = join(dir, "b");
+      await writeFile(a, "old");
+      await writeFile(b, "old");
+      const edits = [
+        { path: a, oldText: "old", newText: "new" },
+        { path: b, oldText: "old", newText: "new" },
+      ];
+      const prepared = new Map();
+      await applyClassicEdits(
+        edits,
+        createVirtualWorkspace(dir),
+        dir,
+        undefined,
+        { onPrepared: (path, plan) => prepared.set(path, plan) },
+      );
+      const workspace = makeWorkspace();
+      const originalWrite = workspace.writeText;
+      workspace.writeText = async (path, content) => {
+        if (path === b && content === "new")
+          throw new Error("simulated I/O failure");
+        await originalWrite(path, content);
+      };
+      await assert.rejects(
+        () =>
+          applyClassicEdits(edits, workspace, dir, undefined, {
+            prepared,
+            rollbackOnError: true,
+          }),
+        /I\/O failure/,
+      );
+      assert.equal(await readFile(a, "utf8"), "old");
+      assert.equal(await readFile(b, "utf8"), "old");
+    });
+  });
+});
+
+test("abort during a prepared write still restores the snapshot", async () => {
+  const { createVirtualWorkspace } = await import("../src/workspace.ts");
+  await withTmp(async (dir) => {
+    const file = join(dir, "a");
+    const edits = [{ path: file, oldText: "old", newText: "new" }];
+    const prepared = new Map();
+    await writeFile(file, "old");
+    await applyClassicEdits(
+      edits,
+      createVirtualWorkspace(dir),
+      dir,
+      undefined,
+      { onPrepared: (path, plan) => prepared.set(path, plan) },
+    );
+    const controller = new AbortController();
+    const workspace = makeWorkspace(),
+      originalWrite = workspace.writeText;
+    workspace.writeText = async (path, content) => {
+      await originalWrite(path, content);
+      if (content === "new") controller.abort();
+    };
+    await assert.rejects(
+      () =>
+        applyClassicEdits(edits, workspace, dir, controller.signal, {
+          prepared,
+          rollbackOnError: true,
+        }),
+      /aborted/,
+    );
+    assert.equal(await readFile(file, "utf8"), "old");
   });
 });

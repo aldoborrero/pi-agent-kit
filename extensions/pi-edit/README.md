@@ -22,7 +22,7 @@ Legacy and patch modes retain a **virtual preflight pass**. All modes use Pi’s
 }
 ```
 
-Every replacement targets the **original file**, not the result of previous replacements. Each `oldText` must be unique and edits must not overlap. Missing, ambiguous, overlapping, empty, and net no-op replacements fail before writing. Pi handles combined Unicode/whitespace fuzzy matching, preserves unchanged lines, and restores BOM/line endings. Native results include Pi's unified `details.patch` plus `details.fileChanges` for split-diff rendering.
+Every replacement targets the **original file**, not the result of previous replacements. Each `oldText` must be unique and edits must not overlap. Missing, ambiguous, overlapping, empty, and net no-op replacements fail before writing. Pi handles combined Unicode/whitespace fuzzy matching, preserves unchanged lines, and restores BOM/line endings. Native results include Pi's unified `details.patch` plus compact `details.fileChanges` for split-diff rendering. Oversized patches are replaced by an empty string with an explicit `patchOmitted` reason, never by an invalid truncated patch.
 
 The argument preparation hook also accepts `edits` encoded as a JSON string or a single replacement object. `edits` cannot be mixed with legacy replacement fields, `multi`, or `patch`.
 
@@ -163,7 +163,7 @@ Native `edits[]` uses Pi’s encoding handling (including lone `\r` normalizatio
 
 ### Preflight Validation
 
-For legacy and patch modes, before writing to disk, every edit is applied to an in-memory virtual filesystem. If any replacement fails — wrong `oldText`, file not found, missing context — the operation is aborted and no real files are modified. The preflight also checks write permissions against the real filesystem so read-only targets fail fast.
+For legacy and patch modes, before writing to disk, every edit is applied to an in-memory virtual filesystem. If any replacement fails — wrong `oldText`, file not found, missing context — the operation is aborted and no real files are modified. The preflight also checks write permissions against the real filesystem so read-only targets fail fast. Classic mode keeps an operation-local prepared plan. The real pass rereads the file, rechecks permissions, and reuses matching only if the current contents and edit inputs still agree; otherwise it rematches. Preflight, revalidation and rollback stay inside the shared mutation locks.
 
 ### Atomic Multi-File Rollback
 
@@ -180,6 +180,9 @@ Classic `oldText` lookups escalate through an ordered list of normalizer passes:
 1. **Exact** — character-for-character match
 2. **Curly → straight quotes** — `'` / `'` / `"` / `"` in `oldText` are rewritten to ASCII before the second search
 3. **Trailing whitespace tolerance** — per-line `trimEnd` on both sides catches the most frequent class of mismatch
+4. **Unicode NFKC**, dash and special-space normalization
+
+Normalization requirements are classified once per file/pass. Uniqueness counting stops as soon as ambiguity is established, including fuzzy variants before exact hits. Empty fuzzy patterns are skipped, while exact whitespace edits remain valid; match offsets must advance.
 
 Patch `@@` hunks also support a `trimEnd` fallback when exact `indexOf` misses.
 
@@ -198,49 +201,68 @@ If the same `oldText → newText` pair appears more than once in a `multi` batch
 | `Add File` on existing file | Silently overwrites | Throws — Codex-compatible behavior |
 | Encoding (BOM / CRLF) | Lost on read/write — CRLF files corrupted | Detected on read, restored on write across all modes |
 
-## Rendering
+## Rendering and performance bounds
 
-When running inside pi's TUI, `pi-edit` renders syntax-highlighted, side-by-side split diffs for every changed file using [`@xynogen/pix-pretty`](https://github.com/xynogen/pix-pretty).
+`pi-edit` uses [`@xynogen/pix-pretty`](https://github.com/xynogen/pix-pretty) for split diffs, with `renderShell: "self"` and real Pi components.
 
-### How it works
+- **Compact results:** new `details.fileChanges` entries contain versioned hunks/line numbers, not `oldContent`/`newContent` snapshots. Native mode reuses Pi's already computed patch; legacy engines compute gutter output and preview together. The data survives JSONL persistence, headless execution, and later TUI replay without reading today's file to reconstruct an old diff.
+- **Historical compatibility:** old snapshot-based results still render using bounded diff computation and weakly held memoization.
+- **Cache:** content references/revisions identify updates (including same-length changes). Theme, width and expansion affect presentation, not structural diff computation. Cache hits never JSON-stringify or hash full files. Published compact previews are immutable; producers must replace the preview object to signal an update.
+- **Resize lifecycle:** invalidation belongs to the component and Pi's normal redraw lifecycle. There is no global callback registry or permanent stdout resize listener retaining closed sessions.
+- **Long lines:** word-diff work in pix-pretty is estimated conservatively. Above the render-wide work budget, a linear, line-numbered plain diff replaces expensive word highlighting.
 
-- **`renderCall`** — shows a one-line header with the file path and edit mode (`edit`, `N edits` (including native `edits[]`), or `patch`) as soon as the tool call is dispatched.
-- **`renderResult`** — reads `details.fileChanges` from the tool result and renders one split-diff block per changed file, separated by `···` dividers. Rendering is async; the TUI displays a `rendering diff…` placeholder until the diff blocks are ready, then redraws via `ctx.invalidate()`.
+### Limits and fallbacks
 
-### Accuracy guarantee
+| Work | Default bound |
+|---|---|
+| Local line-diff search | 15 ms soft timeout and 512 edit distance |
+| Raw before + after input | 8 Mi UTF-16 code units |
+| Stored preview content / native patch / text diff | 64 Ki code units each (metadata adds overhead) |
+| Preview rows / individual line length | 2,000 rows / 2,000 code units |
+| Collapsed rendering | pix-pretty's `MAX_RENDER_LINES`, shared across the visible files |
+| Expanded rendering | 2,000 logical diff rows total |
+| Files rendered | At most 20 collapsed / 100 expanded |
 
-The split diffs are generated from `details.fileChanges`, which contains the **actual before→after content written to disk** — not the raw `oldText`/`newText` parameters. This means what you see in the TUI accurately reflects the real outcome, including encoding normalization and positional ordering.
+The timeout is a **soft search budget**, not a hard real-time guarantee: tokenization, parsing and bounded rendering still take time. Historical multi-file conversion also has a per-render budget. Limits produce explicit omission/plain-diff notices and never undo a successful file edit. Expanding increases the visible budget, but does not bypass safety bounds. Pi's native matching and initial diff generation still run upstream; this extension does not impose a timeout on that implementation.
 
-The renderer uses Pi’s current component/context API with `renderShell: "self"`. Expanding a result removes the collapsed line limit. Cache keys include the actual content, theme, width and expanded state, and whole-file diffs retain their original line numbers.
+Outside TUI, `content[0].text` remains the execution summary and `details.diff` the bounded gutter diff. Compact previews are retained in headless mode so the session remains viewable later.
 
-### Resize handling
-
-`renderResult` registers with `@xynogen/pix-pretty`'s resize tracker so diffs reflow to the current terminal width when the window is resized.
-
-### Non-TUI fallback
-
-Outside a TUI context (e.g. plain text output, CI), the tool returns a summary string in `content[0].text` and a gutter diff in `details.diff`. No split-diff rendering occurs in that path.
-
-**Result shape:**
+**New result shape:**
 
 ```jsonc
 {
-  "content": [{ "type": "text", "text": "Applied 2 edit(s) successfully.\n1. …\n2. …" }],
+  "content": [{ "type": "text", "text": "Edited src/file.ts." }],
   "details": {
-    "diff": "<gutter diff>",
+    "diff": "-42 const value = 1;\n+42 const value = 2;",
     "firstChangedLine": 42,
-    "fileChanges": [
-      {
-        "path": "/abs/path/to/file.ts",
-        "oldContent": "…before…",
-        "newContent": "…after…",
-        "firstChangedLine": 42,
-        "language": "typescript"
+    "fileChanges": [{
+      "format": "hunks-v1",
+      "path": "/abs/src/file.ts",
+      "language": "typescript",
+      "firstChangedLine": 42,
+      "preview": {
+        "lines": [
+          { "type": "del", "oldNum": 42, "newNum": null, "content": "const value = 1;" },
+          { "type": "add", "oldNum": null, "newNum": 42, "content": "const value = 2;" }
+        ],
+        "added": 1,
+        "removed": 1,
+        "chars": 1000
       }
-    ]
+    }]
   }
 }
 ```
+
+An omitted preview has `lines: []` and an explicit `omitted` reason; its zero counts mean unavailable statistics, not zero changes. Consumers of the previous raw-snapshot format should migrate to `format: "hunks-v1"`.
+
+### Benchmarks
+
+```sh
+bun run --cwd extensions/pi-edit bench
+```
+
+The harness uses temporary files, a warm filesystem, one warm-up and five execution samples; cached rendering uses 15 samples. It compares the Pi builtin, native wrapper and legacy batch engine, reports serialized result size, and measures both historical and compact rendering. It does not include LLM/network time, actual terminal painting, session writes or external file-modification observers. Run on the deployment runtime before using the numbers as a latency target.
 
 ## Dependencies
 

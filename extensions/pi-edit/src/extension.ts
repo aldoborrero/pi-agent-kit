@@ -17,13 +17,19 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { lang } from "@xynogen/pix-pretty/lang";
 
-import { applyClassicEdits } from "./classic.ts";
+import { applyClassicEdits, type PreparedClassicFile } from "./classic.ts";
+import { boundedDiffText, compactChange } from "./preview.ts";
 import { once } from "./once.ts";
 import { executeNativeEdits } from "./native.ts";
 import { withMutationQueues } from "./mutation.ts";
 import { applyPatchOperations, parsePatch } from "./patch.ts";
 import { renderCall, renderResult } from "./render.ts";
-import type { EditItem, FileChange, PatchOperation } from "./types.ts";
+import type {
+  EditItem,
+  FileChange,
+  FileDiff,
+  PatchOperation,
+} from "./types.ts";
 import { createRealWorkspace, createVirtualWorkspace } from "./workspace.ts";
 
 // ---------------------------------------------------------------------------
@@ -268,9 +274,9 @@ export default function (pi: ExtensionAPI) {
             );
 
             // Collector for the real apply only.
-            const fileChanges: FileChange[] = [];
+            const fileChanges: FileDiff[] = [];
             const onFileChange = (c: Omit<FileChange, "language">) =>
-              fileChanges.push({ ...c, language: lang(c.path) });
+              fileChanges.push(compactChange({ ...c, language: lang(c.path) }));
 
             // Apply for real.
             const applied = await applyPatchOperations(
@@ -300,14 +306,16 @@ export default function (pi: ExtensionAPI) {
                 },
               ],
               details: {
-                diff: combinedDiff,
+                diff: boundedDiffText(combinedDiff),
                 firstChangedLine,
                 fileChanges,
               },
             };
           }
 
-          // Classic mode.
+          // Classic mode: reuse preflight matching only if the fresh on-disk
+          // content and edit inputs still agree with the prepared plan.
+          const prepared = new Map<string, PreparedClassicFile>();
 
           // Preflight pass on virtual workspace before mutating real files.
           // Uses sequential occurrence matching so same-file edits are resolved
@@ -318,7 +326,10 @@ export default function (pi: ExtensionAPI) {
               createVirtualWorkspace(ctx.cwd),
               ctx.cwd,
               signal,
-              { collectDiff: false },
+              {
+                collectDiff: false,
+                onPrepared: (path, file) => prepared.set(path, file),
+              },
             );
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -326,9 +337,9 @@ export default function (pi: ExtensionAPI) {
           }
 
           // Collector for the real apply only.
-          const fileChanges: FileChange[] = [];
+          const fileChanges: FileDiff[] = [];
           const onFileChange = (c: Omit<FileChange, "language">) =>
-            fileChanges.push({ ...c, language: lang(c.path) });
+            fileChanges.push(compactChange({ ...c, language: lang(c.path) }));
 
           // Apply for real. `continueOnError` lets successful edits land even
           // when a sibling fails; `rollbackOnError` restores files if an
@@ -342,6 +353,7 @@ export default function (pi: ExtensionAPI) {
             {
               collectDiff: true,
               rollbackOnError: true,
+              prepared,
               continueOnError: isBatch,
               onFileChange,
             },
@@ -383,7 +395,7 @@ export default function (pi: ExtensionAPI) {
           return {
             content: [{ type: "text" as const, text: statusLine }],
             details: {
-              diff: combinedDiff,
+              diff: boundedDiffText(combinedDiff),
               firstChangedLine: firstChanged,
               fileChanges,
             },

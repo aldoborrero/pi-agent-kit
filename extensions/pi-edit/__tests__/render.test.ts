@@ -156,3 +156,107 @@ test("pending diffs cannot overwrite a later error", async () => {
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(context.state._piek, undefined);
 });
+
+import { compactChange } from "../src/preview.ts";
+
+test("cache hits and presentation changes do not serialize snapshots or recompute hunks", async () => {
+  const context = ctx();
+  const result = changeResult("a\n", "b\n");
+  const change = result.details.fileChanges[0]!;
+  Object.defineProperty(change, "toJSON", {
+    value() {
+      throw new Error("snapshot serialized");
+    },
+  });
+  await rendered(result, context);
+  const preview = context.state._pieViews[0].preview;
+  const key = context.state._piek;
+  renderResult(result, options, theme, context);
+  assert.equal(context.state._piek, key);
+  renderResult(result, { ...options, expanded: true }, theme, context);
+  assert.equal(context.state._pieViews[0].preview, preview);
+  const recolored = { ...theme, getFgAnsi: () => "\x1b[32m" };
+  renderResult(result, options, recolored, context);
+  assert.equal(context.state._pieViews[0].preview, preview);
+});
+
+test("legacy same-object content updates replace the cached preview", async () => {
+  const context = ctx();
+  const result = changeResult();
+  const first = await rendered(result, context);
+  result.details.fileChanges[0]!.newContent = "c\n";
+  const second = await rendered(result, context);
+  assert.notEqual(first, second);
+});
+
+test("compact historical results render after JSON round-trip, without reading files", async () => {
+  const result = changeResult("a\n", "b\n");
+  const compact = {
+    ...result,
+    details: { fileChanges: result.details.fileChanges.map(compactChange) },
+  };
+  const context = ctx();
+  const ready = new Promise<void>((resolve) => {
+    context.invalidate = resolve;
+  });
+  renderResult(JSON.parse(JSON.stringify(compact)), options, theme, context);
+  await ready;
+  assert.match(String(context.state._piet), /b/);
+});
+
+test("resize callbacks belong to the component, not a global listener", async () => {
+  const context = ctx();
+  const result = changeResult();
+  await rendered(result, context);
+  let invalidations = 0;
+  context.invalidate = () => {
+    invalidations++;
+  };
+  const listeners = process.stdout.listenerCount("resize");
+  const component = renderResult(result, options, theme, context);
+  component.render(80);
+  component.render(80);
+  component.render(100);
+  assert.equal(invalidations, 1);
+  assert.equal(process.stdout.listenerCount("resize"), listeners);
+});
+
+test("completed renderer callbacks do not retain closed session owners", async () => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const module = new URL("../src/render.ts", import.meta.url).href;
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      "--eval",
+      `
+    const {renderResult}=await import(${JSON.stringify(module)});
+    function make() {
+      const owner={calls:0};
+      const ctx={state:{},toolCallId:'retention-check',invalidate:()=>owner.calls++};
+      renderResult({details:{fileChanges:[{path:'f',oldContent:'a\\n',newContent:'b\\n'}]}},
+        {expanded:false,isPartial:false}, {fg:(_,s)=>s,bold:s=>s,getFgAnsi:()=>''},ctx);
+      return new WeakRef(owner);
+    }
+    const ref=make();
+    for(let i=0;i<20;i++) {
+      await new Promise(resolve=>setTimeout(resolve,10));
+      Bun.gc(true);
+      if(!ref.deref()){console.log('released');break;}
+    }
+  `,
+    ],
+    { timeout: 5000 },
+  );
+  assert.match(stdout, /released/);
+});
+
+test("long-line word diffs use the linear renderer", async () => {
+  const before =
+    Array.from({ length: 200 }, (_, i) => `a${i}`).join(" ") + "\n";
+  const after = Array.from({ length: 200 }, (_, i) => `b${i}`).join(" ") + "\n";
+  const text = await rendered(changeResult(before, after), ctx());
+  assert.match(text, /word highlighting disabled by budget/);
+  assert.match(text, /a0/);
+  assert.match(text, /b0/);
+});

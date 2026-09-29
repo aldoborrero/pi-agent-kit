@@ -7,10 +7,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { lang } from "@xynogen/pix-pretty/lang";
 
-import { readEncoding } from "./encoding.ts";
-import type { FileChange } from "./types.ts";
+import {
+  boundedDiffText,
+  MAX_PREVIEW_CHARS,
+  previewFromPatch,
+} from "./preview.ts";
+import type { FileDiff } from "./types.ts";
 
-/** Delegate edits[] to Pi so matching, overlap checks and mutation locking stay upstream. */
+/** Delegate matching/locking to Pi; persist hunks, never full-file snapshots. */
 export async function executeNativeEdits(
   pi: ExtensionAPI,
   toolCallId: string,
@@ -18,35 +22,43 @@ export async function executeNativeEdits(
   signal: AbortSignal | undefined,
   ctx: ExtensionContext,
 ) {
-  const fileChanges: FileChange[] = [];
-  let oldContent = "";
-  const normalized = (raw: string) =>
-    readEncoding(raw).text.replace(/\r/g, "\n");
+  let changedPath: string | undefined;
   const tool = createEditToolDefinition(ctx.cwd, {
     operations: {
       access: (path) => access(path, constants.R_OK | constants.W_OK),
-      // Capture the before/after inside the native mutation queue, not in
-      // separate reads that could race with another edit or write tool.
-      async readFile(path) {
-        const buffer = await readFile(path);
-        oldContent = normalized(buffer.toString("utf-8"));
-        return buffer;
-      },
+      readFile,
       async writeFile(path, content) {
         await writeFile(path, content, "utf-8");
-        fileChanges.push({
-          path,
-          oldContent,
-          newContent: normalized(content),
-          language: lang(path),
-        });
+        changedPath = path;
         pi.events.emit("context-guard:file-modified", { path });
       },
     },
   });
   const result = await tool.execute(toolCallId, params, signal, undefined, ctx);
-  for (const change of fileChanges) {
-    change.firstChangedLine = result.details?.firstChangedLine;
-  }
-  return { ...result, details: { ...result.details, fileChanges } };
+  const patch = result.details?.patch ?? "";
+  const fileChanges: FileDiff[] = changedPath
+    ? [
+        {
+          format: "hunks-v1",
+          path: changedPath,
+          language: lang(changedPath),
+          firstChangedLine: result.details?.firstChangedLine,
+          preview: previewFromPatch(patch),
+        },
+      ]
+    : [];
+  return {
+    ...result,
+    details: {
+      ...result.details,
+      diff: boundedDiffText(result.details?.diff ?? ""),
+      // An omitted patch is not a valid patch: expose an empty string and reason,
+      // not a silently truncated patch that downstream consumers might apply.
+      patch: patch.length <= MAX_PREVIEW_CHARS ? patch : "",
+      ...(patch.length > MAX_PREVIEW_CHARS
+        ? { patchOmitted: "Patch exceeds the stored diff size limit" }
+        : {}),
+      fileChanges,
+    },
+  };
 }

@@ -17,7 +17,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { lang } from "@xynogen/pix-pretty/lang";
 
 import registerExtension from "../src/extension.ts";
-import type { FileChange } from "../src/types.ts";
+import type { FileDiff } from "../src/types.ts";
 
 // ---------------------------------------------------------------------------
 // Stub ExtensionAPI — registerTool captures the tool definition; events.emit
@@ -228,12 +228,30 @@ type ResultWithFileChanges = {
   details: {
     diff: string;
     firstChangedLine?: number;
-    fileChanges: FileChange[];
+    fileChanges: FileDiff[];
   };
 };
 
+// These fixtures fit entirely in the context window. Check the stored hunks
+// still describe exactly what reached disk, with no retained file snapshots.
+function assertSmallPreview(change: FileDiff, before: string, after: string) {
+  assert.equal(change.format, "hunks-v1");
+  assert.equal("oldContent" in change, false);
+  assert.equal("newContent" in change, false);
+  assert.equal(change.preview.omitted, undefined);
+  const lines = change.preview.lines;
+  const original = lines
+    .filter((l) => l.type === "ctx" || l.type === "del")
+    .map((l) => l.content);
+  const updated = lines
+    .filter((l) => l.type === "ctx" || l.type === "add")
+    .map((l) => l.content);
+  assert.equal(original.length ? original.join("\n") + "\n" : "", before);
+  assert.equal(updated.length ? updated.join("\n") + "\n" : "", after);
+}
+
 describe("execute — fileChanges: classic single edit", () => {
-  test("result.details.fileChanges has one entry with correct path, old/new content, and language", async () => {
+  test("result.details.fileChanges has one entry with correct path, compact hunks, and language", async () => {
     await withTmp(async (dir) => {
       const file = join(dir, "example.ts");
       const originalContent = "const a = 1;\nconst b = 2;\n";
@@ -257,16 +275,7 @@ describe("execute — fileChanges: classic single edit", () => {
 
       const fc = fileChanges[0]!;
       assert.equal(fc.path, file, "path must be the absolute file path");
-      assert.equal(
-        fc.oldContent,
-        originalContent,
-        "oldContent must be the pre-edit content",
-      );
-      assert.equal(
-        fc.newContent,
-        "const a = 99;\nconst b = 2;\n",
-        "newContent must be the post-edit content",
-      );
+      assertSmallPreview(fc, originalContent, "const a = 99;\nconst b = 2;\n");
       assert.equal(
         fc.language,
         lang(fc.path),
@@ -306,16 +315,7 @@ describe("execute — fileChanges: multi batch 2 edits on one file", () => {
 
       const fc = fileChanges[0]!;
       assert.equal(fc.path, file, "path must be the absolute file path");
-      assert.equal(
-        fc.oldContent,
-        originalContent,
-        "oldContent must be original pre-edit content",
-      );
-      assert.equal(
-        fc.newContent,
-        "ALPHA\nbeta\nGAMMA\n",
-        "newContent must reflect both edits applied",
-      );
+      assertSmallPreview(fc, originalContent, "ALPHA\nbeta\nGAMMA\n");
     });
   });
 });
@@ -358,33 +358,13 @@ describe("execute — fileChanges: patch with add/update/delete", () => {
         "three operations → three FileChange entries",
       );
 
-      // Add: oldContent empty, newContent non-empty.
       const added = fileChanges.find((fc) => fc.path.endsWith("new.txt"));
-      assert.ok(added, "must have a FileChange for the added file");
-      assert.equal(added!.oldContent, "", "added file has empty oldContent");
-      assert.ok(
-        added!.newContent.length > 0,
-        "added file has non-empty newContent",
-      );
-
-      // Update: old and new differ.
       const updated = fileChanges.find((fc) => fc.path.endsWith("update.txt"));
-      assert.ok(updated, "must have a FileChange for the updated file");
-      assert.equal(updated!.oldContent, "keep\nold\ntail\n");
-      assert.equal(updated!.newContent, "keep\nnew\ntail\n");
-
-      // Delete: newContent empty.
       const deleted = fileChanges.find((fc) => fc.path.endsWith("delete.txt"));
-      assert.ok(deleted, "must have a FileChange for the deleted file");
-      assert.ok(
-        deleted!.oldContent.length > 0,
-        "deleted file has non-empty oldContent",
-      );
-      assert.equal(
-        deleted!.newContent,
-        "",
-        "deleted file has empty newContent",
-      );
+      assert.ok(added && updated && deleted);
+      assertSmallPreview(added, "", "hello\n");
+      assertSmallPreview(updated, "keep\nold\ntail\n", "keep\nnew\ntail\n");
+      assertSmallPreview(deleted, "gone\n", "");
     });
   });
 });
@@ -409,15 +389,12 @@ describe("execute — native Pi edits[]", () => {
       assert.equal(await readFile(join(dir, "a.ts"), "utf8"), "beta\nBETA\n");
       assert.match(result.details.patch, /--- a.ts/);
       assert.match(result.details.diff, /BETA/);
-      assert.deepEqual(result.details.fileChanges, [
-        {
-          path: join(dir, "a.ts"),
-          oldContent: "alpha\nbeta\n",
-          newContent: "beta\nBETA\n",
-          firstChangedLine: 1,
-          language: lang("a.ts"),
-        },
-      ]);
+      assert.equal(result.details.fileChanges.length, 1);
+      const change = result.details.fileChanges[0]!;
+      assert.equal(change.path, join(dir, "a.ts"));
+      assert.equal(change.language, lang("a.ts"));
+      assert.equal(change.firstChangedLine, 1);
+      assertSmallPreview(change, "alpha\nbeta\n", "beta\nBETA\n");
     });
   });
 
@@ -505,9 +482,18 @@ describe("execute — native Pi edits[]", () => {
         await readFile(file, "utf8"),
         untouched + "changed\n" + untouched,
       );
-      assert.equal(
-        result.details.fileChanges[0]!.newContent,
-        untouched + "changed\n" + untouched,
+      const change = result.details.fileChanges[0]!;
+      assert.equal(change.format, "hunks-v1");
+      assert.ok(
+        change.preview.lines.some(
+          (line) => line.type === "add" && line.content === "changed",
+        ),
+      );
+      assert.ok(
+        change.preview.lines.some(
+          (line) =>
+            line.type === "ctx" && line.content === untouched.slice(0, -1),
+        ),
       );
     });
   });
@@ -562,6 +548,70 @@ describe("execute — native Pi edits[]", () => {
         ),
       ]);
       assert.equal(await readFile(file, "utf8"), "ALPHA\nBETA\nGAMMA\n");
+    });
+  });
+});
+
+describe("execute — bounded result persistence", () => {
+  test("small edits on large files persist hunks, in all modes including headless", async () => {
+    await withTmp(async (dir) => {
+      const rows = Array.from(
+        { length: 65536 },
+        (_, i) => `row_${String(i).padStart(7, "0")} = "${"a".repeat(42)}";`,
+      );
+      const original = rows.join("\n") + "\n";
+      const oldText = rows[32768]!,
+        newText = oldText.replace("row_", "ROW_");
+      for (const params of [
+        { path: "large", edits: [{ oldText, newText }] },
+        { path: "large", multi: [{ oldText, newText }] },
+        {
+          patch: `*** Begin Patch\n*** Update File: large\n@@\n-${oldText}\n+${newText}\n*** End Patch`,
+        },
+      ]) {
+        await writeFile(join(dir, "large"), original);
+        const result = (await execute("large", params, undefined, undefined, {
+          cwd: dir,
+        })) as ResultWithFileChanges;
+        const json = JSON.stringify(result);
+        assert.ok(
+          Buffer.byteLength(json) < 16 * 1024,
+          `oversized result: ${json.length}`,
+        );
+        const change = result.details.fileChanges[0]!;
+        assert.equal(change.format, "hunks-v1");
+        assert.equal("oldContent" in change, false);
+        assert.equal("newContent" in change, false);
+        assert.ok(
+          change.preview.lines.some(
+            (l) => l.type === "add" && l.newNum === 32769,
+          ),
+        );
+        assert.equal(
+          await readFile(join(dir, "large"), "utf8"),
+          original.replace(oldText, newText),
+        );
+      }
+    });
+  });
+
+  test("a budget-limited legacy preview does not undo a successful edit", async () => {
+    await withTmp(async (dir) => {
+      const before =
+        Array.from({ length: 6000 }, (_, i) => `old_${i}`).join("\n") + "\n";
+      const after =
+        Array.from({ length: 6000 }, (_, i) => `new_${i}`).join("\n") + "\n";
+      await writeFile(join(dir, "f"), before);
+      const result = (await execute(
+        "rewrite",
+        { path: "f", oldText: before, newText: after },
+        undefined,
+        undefined,
+        { cwd: dir },
+      )) as ResultWithFileChanges;
+      assert.equal(await readFile(join(dir, "f"), "utf8"), after);
+      assert.match(result.details.fileChanges[0]!.preview.omitted!, /budget/);
+      assert.ok(JSON.stringify(result).length < 2048);
     });
   });
 });

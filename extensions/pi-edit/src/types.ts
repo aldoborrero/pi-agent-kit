@@ -59,13 +59,36 @@ export interface Workspace {
   checkCreatable: (absolutePath: string) => Promise<void>; // parent dir writable (for new files)
 }
 
-/** A single file's actual before→after, surfaced by the engines for rendering. */
+/** Compact, bounded presentation data. Safe to persist in session JSONL. */
+export interface DiffPreview {
+  lines: Array<{
+    type: "add" | "del" | "ctx" | "sep";
+    oldNum: number | null;
+    newNum: number | null;
+    content: string;
+  }>;
+  added: number;
+  removed: number;
+  chars: number;
+  omitted?: string;
+}
+
+export interface FileDiff {
+  format: "hunks-v1";
+  path: string;
+  firstChangedLine?: number;
+  language?: string;
+  preview: DiffPreview;
+}
+
+/** Internal before/after callback; raw contents never enter new tool results. */
 export interface FileChange {
   path: string; // absolute path
   oldContent: string; // LF-normalized; "" for a newly added file
   newContent: string; // LF-normalized; "" for a deleted file
   firstChangedLine?: number;
-  language?: string; // set by index.ts via pix-pretty lang(); absent at engine layer
+  language?: string;
+  preview?: DiffPreview; // computed with the gutter diff; avoids a second diff pass
 }
 
 /** Additive collector the engines call once per changed file (real apply only). */

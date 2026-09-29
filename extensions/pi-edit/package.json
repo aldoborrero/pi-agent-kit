@@ -4,7 +4,8 @@
   "description": "Pi extension — replaces edit with batch edits, Codex-style patches, encoding-safe atomic application, and rich split-diff rendering",
   "type": "module",
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "bench": "bun run bench/performance.ts"
   },
   "files": [
     "LICENSE",

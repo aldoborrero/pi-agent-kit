@@ -10,7 +10,6 @@
  * `renderCall` only has the request args and shows a header summary.
  */
 
-import { createHash } from "node:crypto";
 import type {
   Theme,
   ThemeColor,
@@ -19,13 +18,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { MAX_RENDER_LINES } from "@xynogen/pix-pretty/config";
-import { parseDiff } from "@xynogen/pix-pretty/diff";
 import {
   diffThemeCacheKey,
   renderSplit,
   resolveDiffColors,
 } from "@xynogen/pix-pretty/diff-render";
-import { trackInvalidator } from "@xynogen/pix-pretty/resize";
 import {
   fillToolBackground,
   getTextContent,
@@ -34,7 +31,13 @@ import {
   termW,
 } from "@xynogen/pix-pretty/utils";
 
-import type { FileChange } from "./types.ts";
+import {
+  compactChange,
+  DIFF_TIMEOUT_MS,
+  MAX_PREVIEW_LINES,
+  omittedPreview,
+} from "./preview.ts";
+import type { DiffPreview, FileChange, FileDiff } from "./types.ts";
 
 type ToolRenderContext = Parameters<
   NonNullable<ToolDefinition["renderCall"]>
@@ -46,6 +49,20 @@ function prettyTheme(theme: Theme) {
     fg: (key: string, text: string) => theme.fg(key as ThemeColor, text),
     getFgAnsi: (key: string) => theme.getFgAnsi(key as ThemeColor),
   };
+}
+
+// Resize ownership stays with the component: no global registry can retain a
+// closed session. Pi normally invalidates on resize; this also handles direct
+// component renders with a new width.
+class DiffText extends Text {
+  private width?: number;
+  onResize?: () => void;
+  override render(width: number): string[] {
+    const changed = this.width !== undefined && this.width !== width;
+    this.width = width;
+    if (changed) this.onResize?.();
+    return super.render(width);
+  }
 }
 
 // Reuse only Text components; Pi's lastComponent can be any Component.
@@ -90,6 +107,51 @@ export function renderCall(
   return text;
 }
 
+// Previews are immutable tool-result data. Memoize historical snapshots by
+// object identity + content references, never by serializing entire files.
+const previews = new WeakMap<
+  object,
+  {
+    oldContent?: string;
+    newContent?: string;
+    sourcePreview?: FileDiff["preview"];
+    view: FileDiff;
+  }
+>();
+function viewFor(change: FileChange | FileDiff, deadline: number): FileDiff {
+  const raw = change as FileChange;
+  const cached = previews.get(change);
+  if (
+    cached &&
+    cached.oldContent === raw.oldContent &&
+    cached.newContent === raw.newContent &&
+    cached.sourcePreview === change.preview &&
+    cached.view.path === change.path &&
+    cached.view.language === change.language
+  )
+    return cached.view;
+  const view =
+    "format" in change && change.format === "hunks-v1"
+      ? { ...change }
+      : compactChange({
+          ...raw,
+          preview:
+            raw.preview ??
+            (Date.now() >= deadline
+              ? omittedPreview(
+                  "Historical diff exceeded the render computation budget",
+                )
+              : undefined),
+        });
+  previews.set(change, {
+    oldContent: raw.oldContent,
+    newContent: raw.newContent,
+    sourcePreview: change.preview,
+    view,
+  });
+  return view;
+}
+
 // ---------------------------------------------------------------------------
 // renderResult
 // ---------------------------------------------------------------------------
@@ -110,11 +172,16 @@ export function renderResult(
   theme: Theme,
   ctx: ToolRenderContext,
 ): Text {
-  const text = textComponent(ctx);
+  const text =
+    ctx.lastComponent instanceof DiffText
+      ? ctx.lastComponent
+      : new DiffText("", 0, 0);
+  text.onResize = ctx.invalidate;
 
   // Error branch — show the error message and return immediately.
   if (ctx.isError) {
     ctx.state._piek = undefined;
+    ctx.state._pieViews = undefined;
     text.setText(
       renderToolError(
         getTextContent(result as Parameters<typeof getTextContent>[0]) ||
@@ -126,13 +193,14 @@ export function renderResult(
   }
 
   const details = result.details as Record<string, unknown> | undefined;
-  const fcs: FileChange[] = Array.isArray(details?.fileChanges)
-    ? (details.fileChanges as FileChange[])
+  const fcs: Array<FileChange | FileDiff> = Array.isArray(details?.fileChanges)
+    ? (details.fileChanges as Array<FileChange | FileDiff>)
     : [];
 
   // Empty fileChanges — show a one-line fallback from the text content.
   if (fcs.length === 0) {
     ctx.state._piek = undefined;
+    ctx.state._pieViews = undefined;
     const fallback = result.content?.[0];
     const fallbackText =
       fallback && isTextContent(fallback as Parameters<typeof isTextContent>[0])
@@ -146,40 +214,77 @@ export function renderResult(
     return text;
   }
 
-  // Build a cache key from theme colours + terminal width + file change
-  // content signatures. A change in any of these triggers a fresh render.
-  const sig = createHash("sha256").update(JSON.stringify(fcs)).digest("hex");
-  const key = `pied:${diffThemeCacheKey(prettyTheme(theme))}:${termW()}:${options.expanded}:${sig}`;
+  const deadline = Date.now() + DIFF_TIMEOUT_MS;
+  const views = fcs
+    .slice(0, options.expanded ? 100 : 20)
+    .map((fc) => viewFor(fc, deadline));
+  const previous = ctx.state._pieViews as FileDiff[] | undefined;
+  if (
+    !previous ||
+    previous.length !== views.length ||
+    views.some((view, i) => view !== previous[i])
+  ) {
+    ctx.state._pieViews = views;
+    ctx.state._pieRevision = Number(ctx.state._pieRevision ?? 0) + 1;
+  }
+  const key = `pied:${ctx.state._pieRevision}:${fcs.length}:${diffThemeCacheKey(prettyTheme(theme))}:${termW()}:${options.expanded}`;
 
   if (ctx.state._piek !== key) {
     ctx.state._piek = key;
     const placeholder = `  ${theme.fg("muted", "rendering diff…")}`;
     ctx.state._piet = placeholder;
 
-    // Register for terminal-resize invalidation so diffs reflow when the
-    // terminal is resized.
-    if (ctx.toolCallId) {
-      trackInvalidator(ctx.toolCallId, ctx.invalidate);
-    }
-
     const dc = resolveDiffColors(prettyTheme(theme));
     // Capture the key at the time of dispatch; stale-guard checks it on resolve.
     const capturedKey = key;
 
-    Promise.all(
-      fcs.map((fc) =>
-        renderSplit(
-          // fileChanges contains whole files, not snippets: no line offset.
-          parseDiff(fc.oldContent, fc.newContent, 3),
-          fc.language as string | undefined,
-          options.expanded ? Number.POSITIVE_INFINITY : MAX_RENDER_LINES,
-          dc,
-        ),
-      ),
-    )
+    let remainingLines = options.expanded
+      ? MAX_PREVIEW_LINES
+      : MAX_RENDER_LINES;
+    let wordWork = 1_000_000;
+    const pending: Promise<string>[] = [];
+    for (const fc of views) {
+      if (remainingLines <= 0) break;
+      if (fc.preview.omitted) {
+        pending.push(
+          Promise.resolve(
+            `  ${theme.fg("muted", `Diff omitted: ${fc.preview.omitted}.`)}`,
+          ),
+        );
+        remainingLines--;
+        continue;
+      }
+      const limit = Math.min(remainingLines, fc.preview.lines.length);
+      remainingLines -= limit + 1;
+      // pix-pretty's word diff is unbounded even when line diffing is cheap.
+      // Estimate worst-case work conservatively and fall back to a linear,
+      // line-numbered renderer for long lines / large expanded changes.
+      const work = fc.preview.lines
+        .slice(0, limit)
+        .reduce(
+          (total, line) =>
+            total +
+            (line.type === "add" || line.type === "del"
+              ? line.content.length ** 2
+              : 0),
+          0,
+        );
+      if (work > wordWork) {
+        pending.push(Promise.resolve(renderPlain(fc.preview, limit, theme)));
+      } else {
+        wordWork -= work;
+        pending.push(renderSplit(fc.preview, fc.language, limit, dc));
+      }
+    }
+    Promise.all(pending)
       .then((blocks) => {
         if (ctx.state._piek !== capturedKey) return; // stale render, discard
-        ctx.state._piet = blocks.join("\n  ···\n");
+        const hidden = fcs.length - blocks.length;
+        ctx.state._piet =
+          blocks.join("\n  ···\n") +
+          (hidden > 0
+            ? `\n  ${hidden} more file diff(s) not shown (render limit).`
+            : "");
         ctx.invalidate();
       })
       .catch(() => {
@@ -193,4 +298,28 @@ export function renderResult(
     String(ctx.state._piet ?? `  ${theme.fg("muted", "rendering diff…")}`),
   );
   return text;
+}
+
+function renderPlain(
+  preview: DiffPreview,
+  limit: number,
+  theme: Theme,
+): string {
+  const lines = preview.lines.slice(0, limit).map((line) => {
+    if (line.type === "sep") return "  …";
+    const marker = line.type === "add" ? "+" : line.type === "del" ? "-" : " ";
+    const num = line.type === "add" ? line.newNum : line.oldNum;
+    const color =
+      line.type === "add"
+        ? "toolDiffAdded"
+        : line.type === "del"
+          ? "toolDiffRemoved"
+          : "toolDiffContext";
+    return theme.fg(color, `${marker}${num} ${line.content}`);
+  });
+  const remaining = preview.lines.length - limit;
+  return (
+    `  ${theme.fg("muted", "Plain diff (word highlighting disabled by budget).")}\n${lines.join("\n")}` +
+    (remaining > 0 ? `\n  … ${remaining} more diff lines` : "")
+  );
 }
