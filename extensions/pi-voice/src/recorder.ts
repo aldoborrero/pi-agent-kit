@@ -227,7 +227,10 @@ export class DaemonRecorder implements Recorder {
 	}
 
 	start(_onAutoStop: () => void): void {
-		fetch(`${this.baseUrl}/record/start`, { method: "POST" }).catch(() => {
+		fetch(`${this.baseUrl}/record/start`, {
+			method: "POST",
+			signal: AbortSignal.timeout(15000),
+		}).catch(() => {
 			// Silently ignore — caller will detect failure on stop()
 		});
 	}
@@ -236,6 +239,7 @@ export class DaemonRecorder implements Recorder {
 		try {
 			const response = await fetch(`${this.baseUrl}/record/stop`, {
 				method: "POST",
+				signal: AbortSignal.timeout(60000),
 			});
 			const data = (await response.json()) as { text?: string };
 			return { audio: null, transcription: data.text };
@@ -245,7 +249,10 @@ export class DaemonRecorder implements Recorder {
 	}
 
 	cancel(): void {
-		fetch(`${this.baseUrl}/record/stop`, { method: "POST" }).catch(() => {
+		fetch(`${this.baseUrl}/record/stop`, {
+			method: "POST",
+			signal: AbortSignal.timeout(15000),
+		}).catch(() => {
 			// Discard result
 		});
 	}
