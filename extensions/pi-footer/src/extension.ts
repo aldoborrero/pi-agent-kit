@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ThemeColor } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ThemeColor } from "@earendil-works/pi-coding-agent";
 import {
   truncateToWidth,
   visibleWidth,
@@ -23,10 +23,13 @@ import {
 
 const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
 const MIN_LEFT_SPACE = 12;
-const MAX_BRANCH_WIDTH = 18;
+// Below this a shortened branch name no longer identifies the branch.
+const MIN_BRANCH_WIDTH = 10;
 const GIT_CACHE_TTL_MS = 1_500;
 const RENDER_DEBOUNCE_MS = 75;
 const TPS_RENDER_DEBOUNCE_MS = 200;
+// Width reserved for the live rate when deciding where statuses go.
+const TPS_PLACEHOLDER = "000 t/s";
 const GIT_ICON = "󰊢";
 
 const execFileAsync = promisify(execFile);
@@ -87,13 +90,45 @@ type SessionTotals = {
   cost: number;
 };
 
-type FooterDensity = "full" | "comfortable" | "compact" | "minimal";
+type UsageLike = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cost?: { total?: number };
+};
+
+type UsageEntryLike = {
+  type: string;
+  usage?: UsageLike;
+  message?: {
+    role?: string;
+    usage?: UsageLike;
+    stopReason?: string;
+    model?: string;
+    thinkingLevel?: string;
+  };
+};
+
+/** The physical model a virtual model sent the latest response to. */
+type RoutedModel = {
+  id: string;
+  thinking?: string;
+};
+
+/** `tokens` and `percent` are null while Pi cannot know them, e.g. right after compaction. */
+type ContextUsageState = {
+  tokens: number | null;
+  window: number;
+  percent: number | null;
+};
+
+type FooterDensity = "wide" | "full" | "comfortable" | "compact" | "minimal";
 
 type AdaptiveLayout = {
   density: FooterDensity;
   contextMode: "full" | "compact" | "percent";
   cwdMode: "full" | "basename";
-  showStatuses: boolean;
   showSessionName: boolean;
   showBranch: boolean;
   showGitMarkers: boolean;
@@ -101,30 +136,37 @@ type AdaptiveLayout = {
   showSessionTokens: boolean;
   showCost: boolean;
   showThinking: boolean;
+  showAutoCompact: boolean;
+  showProvider: boolean;
   maxModelWidth: number;
 };
 
-type FooterState = {
+export type FooterState = {
   workspace: {
     shortCwd: string;
-    shortBranch: string;
+    branch: string;
     git: GitStatus | null;
   };
-  context: {
-    tokens: number;
-    window: number;
-    percent: number;
-  };
+  context: ContextUsageState;
+  /** Whether Pi compacts the context on its own; undefined when Pi does not say. */
+  autoCompact?: boolean;
   model: {
     id: string;
     thinking: string;
+    /** Set only when several providers are available, as in Pi's own footer. */
+    provider?: string;
+    routed?: RoutedModel;
   };
   session: {
     name?: string;
     totals: SessionTotals;
+    /** Share of the latest prompt served from cache, in percent. */
+    cacheHitRate?: number;
   };
   cost: {
     totalUsd: number;
+    /** The active provider bills a subscription, so the cost is only nominal. */
+    subscription?: boolean;
   };
   statuses: FooterStatus[];
   customLeft: RenderedCustomStatus[];
@@ -186,6 +228,7 @@ function normalizeModelId(rawId: string): string {
 }
 
 function baseDensityForWidth(width: number): FooterDensity {
+  if (width >= 140) return "wide";
   if (width >= 112) return "full";
   if (width >= 88) return "comfortable";
   if (width >= 64) return "compact";
@@ -194,12 +237,13 @@ function baseDensityForWidth(width: number): FooterDensity {
 
 function layoutForDensity(density: FooterDensity, width: number): AdaptiveLayout {
   switch (density) {
-    case "full":
+    // The details borrowed from Pi's own footer cost about twenty columns. Below
+    // this width they would take them from the branch name and git markers.
+    case "wide":
       return {
         density,
         contextMode: "full",
         cwdMode: "full",
-        showStatuses: true,
         showSessionName: true,
         showBranch: true,
         showGitMarkers: true,
@@ -207,6 +251,24 @@ function layoutForDensity(density: FooterDensity, width: number): AdaptiveLayout
         showSessionTokens: true,
         showCost: true,
         showThinking: true,
+        showAutoCompact: true,
+        showProvider: true,
+        maxModelWidth: 32,
+      };
+    case "full":
+      return {
+        density,
+        contextMode: "full",
+        cwdMode: "full",
+        showSessionName: true,
+        showBranch: true,
+        showGitMarkers: true,
+        showCustomItems: true,
+        showSessionTokens: true,
+        showCost: true,
+        showThinking: true,
+        showAutoCompact: false,
+        showProvider: false,
         maxModelWidth: 32,
       };
     case "comfortable":
@@ -214,7 +276,6 @@ function layoutForDensity(density: FooterDensity, width: number): AdaptiveLayout
         density,
         contextMode: "full",
         cwdMode: "full",
-        showStatuses: true,
         showSessionName: false,
         showBranch: true,
         showGitMarkers: true,
@@ -222,6 +283,8 @@ function layoutForDensity(density: FooterDensity, width: number): AdaptiveLayout
         showSessionTokens: true,
         showCost: true,
         showThinking: true,
+        showAutoCompact: false,
+        showProvider: false,
         maxModelWidth: 24,
       };
     case "compact":
@@ -229,7 +292,6 @@ function layoutForDensity(density: FooterDensity, width: number): AdaptiveLayout
         density,
         contextMode: "compact",
         cwdMode: "basename",
-        showStatuses: false,
         showSessionName: false,
         showBranch: true,
         showGitMarkers: true,
@@ -237,6 +299,8 @@ function layoutForDensity(density: FooterDensity, width: number): AdaptiveLayout
         showSessionTokens: false,
         showCost: false,
         showThinking: true,
+        showAutoCompact: false,
+        showProvider: false,
         maxModelWidth: 18,
       };
     case "minimal":
@@ -244,7 +308,6 @@ function layoutForDensity(density: FooterDensity, width: number): AdaptiveLayout
         density,
         contextMode: "percent",
         cwdMode: "basename",
-        showStatuses: false,
         showSessionName: false,
         showBranch: width >= 48,
         showGitMarkers: false,
@@ -252,12 +315,15 @@ function layoutForDensity(density: FooterDensity, width: number): AdaptiveLayout
         showSessionTokens: false,
         showCost: false,
         showThinking: false,
+        showAutoCompact: false,
+        showProvider: false,
         maxModelWidth: 14,
       };
   }
 }
 
 function nextNarrowerDensity(density: FooterDensity): FooterDensity | null {
+  if (density === "wide") return "full";
   if (density === "full") return "comfortable";
   if (density === "comfortable") return "compact";
   if (density === "compact") return "minimal";
@@ -487,10 +553,13 @@ function formatUsdCompact(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-function formatSessionTokens(totals: SessionTotals): string {
+function formatSessionTokens(totals: SessionTotals, cacheHitRate?: number): string {
   const parts = [`↑${formatTokenCount(totals.input)}`, `↓${formatTokenCount(totals.output)}`];
   if (totals.cacheRead > 0) parts.push(`R${formatTokenCount(totals.cacheRead)}`);
   if (totals.cacheWrite > 0) parts.push(`W${formatTokenCount(totals.cacheWrite)}`);
+  if ((totals.cacheRead > 0 || totals.cacheWrite > 0) && cacheHitRate !== undefined) {
+    parts.push(`CH${Math.round(cacheHitRate)}%`);
+  }
   return parts.join(" ");
 }
 
@@ -519,9 +588,12 @@ function renderGitMarkers(git: GitStatus | null, colors: ReturnType<typeof creat
 
 async function getGitStatus(cwd: string): Promise<GitStatus | null> {
   try {
+    // This runs in the background while the agent works: without
+    // --no-optional-locks it can hold index.lock and make the agent's own git
+    // commands fail.
     const { stdout } = await execFileAsync(
       "git",
-      ["status", "--porcelain=v1", "--branch", "--untracked-files=normal"],
+      ["--no-optional-locks", "status", "--porcelain=v1", "--branch", "--untracked-files=normal"],
       { cwd, timeout: 2_000, maxBuffer: 1024 * 1024 },
     );
     let staged = 0;
@@ -562,87 +634,136 @@ async function getGitStatus(cwd: string): Promise<GitStatus | null> {
   }
 }
 
-function readCoreContextUsage(ctx: { getContextUsage?: () => unknown }): {
-  tokens: number;
-  window: number;
-  percent: number;
-} | null {
-  if (typeof ctx.getContextUsage !== "function") return null;
-  let usage: unknown;
-  try {
-    usage = ctx.getContextUsage();
-  } catch {
-    return null;
-  }
-  if (!isRecord(usage)) return null;
+function addUsage(totals: SessionTotals, usage: UsageLike | undefined): void {
+  if (!usage) return;
+  totals.input += usage.input ?? 0;
+  totals.output += usage.output ?? 0;
+  totals.cacheRead += usage.cacheRead ?? 0;
+  totals.cacheWrite += usage.cacheWrite ?? 0;
+  totals.cost += usage.cost?.total ?? 0;
+}
 
-  const tokens = typeof usage.tokens === "number"
-    ? usage.tokens
-    : typeof usage.contextTokens === "number"
-      ? usage.contextTokens
-      : undefined;
-  const window = typeof usage.contextWindow === "number"
-    ? usage.contextWindow
-    : undefined;
-  if (tokens === undefined || !Number.isFinite(tokens) || !window || !Number.isFinite(window)) {
-    return null;
+/**
+ * What the session has spent so far, counted the way Pi's own footer does:
+ * every entry of the session (not only the active branch), including aborted
+ * responses, tool-result usage, standalone usage entries, and the model calls
+ * made for compaction and branch summaries.
+ */
+export function sumSessionUsage(entries: readonly UsageEntryLike[]): SessionTotals {
+  const totals: SessionTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  for (const entry of entries) {
+    if (entry.type === "message") {
+      const role = entry.message?.role;
+      if (role === "assistant" || role === "toolResult") addUsage(totals, entry.message?.usage);
+    } else if (entry.type === "usage" || entry.type === "compaction" || entry.type === "branch_summary") {
+      addUsage(totals, entry.usage);
+    }
+  }
+  return totals;
+}
+
+/**
+ * How much of the latest request's prompt came from the provider's cache, in
+ * percent. Undefined before the first response or when that prompt was empty.
+ */
+export function latestCacheHitRate(entries: readonly UsageEntryLike[]): number | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry.type !== "message" || entry.message?.role !== "assistant") continue;
+    const usage = entry.message.usage;
+    const promptTokens = (usage?.input ?? 0) + (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0);
+    return promptTokens > 0 ? ((usage?.cacheRead ?? 0) / promptTokens) * 100 : undefined;
+  }
+  return undefined;
+}
+
+// Pi does not export its virtual-model helpers; this is the `api` it gives them.
+const VIRTUAL_MODEL_API = "pi-virtual";
+
+/**
+ * A virtual model picks a physical model per request. Like Pi's own footer,
+ * report the one that produced the latest usable response on this branch.
+ */
+export function resolveRoutedModel(
+  model: { api?: string } | undefined,
+  branch: readonly UsageEntryLike[],
+): RoutedModel | undefined {
+  if (model?.api !== VIRTUAL_MODEL_API) return undefined;
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const message = branch[i].type === "message" ? branch[i].message : undefined;
+    if (message?.role !== "assistant" || !message.model) continue;
+    if (message.stopReason === "error" || message.stopReason === "aborted") continue;
+    return { id: normalizeModelId(message.model), thinking: message.thinkingLevel };
+  }
+  return undefined;
+}
+
+type ContextUsageSource = {
+  getContextUsage?: () => unknown;
+  sessionManager: { getBranch(): UsageEntryLike[] };
+  model?: { contextWindow?: number };
+};
+
+/**
+ * Context usage as Pi reports it. Pi answers `tokens: null` right after a
+ * compaction, until the next response arrives; that stays unknown here rather
+ * than being replaced by the pre-compaction size of the last message.
+ */
+export function resolveContextUsage(ctx: ContextUsageSource): ContextUsageState {
+  if (typeof ctx.getContextUsage === "function") {
+    let usage: unknown;
+    try {
+      usage = ctx.getContextUsage();
+    } catch {
+      usage = undefined;
+    }
+    if (isRecord(usage) && typeof usage.contextWindow === "number" && usage.contextWindow > 0) {
+      const window = usage.contextWindow;
+      const tokens = typeof usage.tokens === "number" && Number.isFinite(usage.tokens) ? usage.tokens : null;
+      if (tokens === null) return { tokens: null, window, percent: null };
+      const percent = typeof usage.percent === "number" && Number.isFinite(usage.percent)
+        ? usage.percent
+        : (tokens / window) * 100;
+      return { tokens, window, percent };
+    }
   }
 
-  const percent = typeof usage.percent === "number" && Number.isFinite(usage.percent)
-    ? usage.percent
-    : (tokens / window) * 100;
-  return { tokens, window, percent };
+  // Pi could not report usage at all: estimate from the last response.
+  const lastUsage = ctx.sessionManager.getBranch()
+    .filter((entry) => entry.type === "message" && entry.message?.role === "assistant")
+    .at(-1)?.message?.usage;
+  const tokens = (lastUsage?.input ?? 0) + (lastUsage?.output ?? 0) +
+    (lastUsage?.cacheRead ?? 0) + (lastUsage?.cacheWrite ?? 0);
+  const window = ctx.model?.contextWindow ?? 0;
+  return { tokens, window, percent: window > 0 ? (tokens / window) * 100 : 0 };
 }
 
 function buildFooterState(
   ctx: {
     cwd?: string;
-    getContextUsage?: () => unknown;
     sessionManager: {
-      getBranch(): Array<{ type: string; message?: AssistantMessage }>;
       getSessionName(): string | undefined;
     };
-    model?: { contextWindow?: number; id?: string };
+    model?: { id?: string; provider?: string };
   },
   footerData: {
     getGitBranch(): string | null;
     getExtensionStatuses(): ReadonlyMap<string, string>;
+    getAvailableProviderCount(): number;
   },
   options: {
     gitStatus: GitStatus | null;
     thinkingLevel: string;
     config: FooterConfig;
+    totals: SessionTotals;
+    context: ContextUsageState;
+    cacheHitRate?: number;
+    routed?: RoutedModel;
+    autoCompact?: boolean;
+    subscription: boolean;
   },
 ): FooterState {
-  const messages = ctx.sessionManager.getBranch()
-    .filter((e): e is { type: "message"; message: AssistantMessage } =>
-      e.type === "message" && !!e.message && e.message.role === "assistant"
-    )
-    .map((e) => e.message)
-    .filter((m) => m.stopReason !== "aborted");
-
-  const lastMessage = messages[messages.length - 1];
-  const totals = messages.reduce<SessionTotals>((sum, message) => {
-    sum.input += message.usage.input ?? 0;
-    sum.output += message.usage.output ?? 0;
-    sum.cacheRead += message.usage.cacheRead ?? 0;
-    sum.cacheWrite += message.usage.cacheWrite ?? 0;
-    sum.cost += message.usage.cost?.total ?? 0;
-    return sum;
-  }, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 });
-  const totalUsd = totals.cost;
-  const fallbackContextTokens = lastMessage
-    ? lastMessage.usage.input +
-      lastMessage.usage.output +
-      lastMessage.usage.cacheRead +
-      lastMessage.usage.cacheWrite
-    : 0;
-  const coreContextUsage = readCoreContextUsage(ctx);
-  const contextTokens = coreContextUsage?.tokens ?? fallbackContextTokens;
-  const contextWindow = coreContextUsage?.window ?? ctx.model?.contextWindow ?? 0;
-  const percentValue = coreContextUsage?.percent ?? (contextWindow > 0
-    ? (contextTokens / contextWindow) * 100
-    : 0);
+  const { totals } = options;
 
   const cwd = ctx.cwd ?? process.cwd();
   const home = process.env.HOME || "";
@@ -650,9 +771,8 @@ function buildFooterState(
     ? "~" + cwd.slice(home.length)
     : cwd;
 
-  const branch = footerData.getGitBranch();
-  const branchText = branch && options.gitStatus?.dirty ? `${branch}*` : branch;
-  const shortBranch = branchText ? shortenMiddle(branchText, MAX_BRANCH_WIDTH) : "";
+  const gitBranch = footerData.getGitBranch();
+  const branch = gitBranch && options.gitStatus?.dirty ? `${gitBranch}*` : gitBranch ?? "";
 
   const extensionStatuses = footerData.getExtensionStatuses();
   const hiddenStatusKeys = new Set(
@@ -684,11 +804,18 @@ function buildFooterState(
   }
 
   return {
-    workspace: { shortCwd, shortBranch, git: options.gitStatus },
-    context: { tokens: contextTokens, window: contextWindow, percent: percentValue },
-    model: { id: normalizeModelId(ctx.model?.id || "no-model"), thinking: options.thinkingLevel },
-    session: { name: ctx.sessionManager.getSessionName(), totals },
-    cost: { totalUsd },
+    workspace: { shortCwd, branch, git: options.gitStatus },
+    context: options.context,
+    autoCompact: options.autoCompact,
+    model: {
+      id: normalizeModelId(ctx.model?.id || "no-model"),
+      thinking: options.thinkingLevel,
+      // With a single provider its name says nothing the model id does not.
+      provider: footerData.getAvailableProviderCount() > 1 ? ctx.model?.provider : undefined,
+      routed: options.routed,
+    },
+    session: { name: ctx.sessionManager.getSessionName(), totals, cacheHitRate: options.cacheHitRate },
+    cost: { totalUsd: totals.cost, subscription: options.subscription },
     statuses,
     customLeft,
     customRight,
@@ -700,18 +827,25 @@ function renderContextUsage(
   colors: ReturnType<typeof createUiColors>,
   mode: AdaptiveLayout["contextMode"],
 ): string {
-  const percentDisplay = `${Math.round(state.context.percent)}%`;
+  const { tokens, percent } = state.context;
+  if (tokens === null || percent === null) {
+    const unknown = colors.meta("?");
+    if (mode !== "full") return unknown;
+    return `${unknown}${colors.separator(`/`)}${colors.primary(formatTokenCount(state.context.window))}`;
+  }
+
+  const percentDisplay = `${Math.round(percent)}%`;
   const pct = colors.pressure(
     percentDisplay,
-    state.context.percent,
+    percent,
     DEFAULT_WARNING_PERCENT,
     DEFAULT_ERROR_PERCENT,
   );
   if (mode === "percent") return pct;
 
   const used = colors.pressure(
-    formatTokenCount(state.context.tokens),
-    state.context.percent,
+    formatTokenCount(tokens),
+    percent,
     DEFAULT_WARNING_PERCENT,
     DEFAULT_ERROR_PERCENT,
   );
@@ -725,7 +859,8 @@ function buildRightSideForLayout(
   options: { tokenVisibility: "on" | "dim" | "off"; liveTps: string | null },
   layout: AdaptiveLayout,
 ): string {
-  const contextDisplay = renderContextUsage(state, colors, layout.contextMode);
+  let contextDisplay = renderContextUsage(state, colors, layout.contextMode);
+  if (layout.showAutoCompact && state.autoCompact) contextDisplay += colors.subtle(" (auto)");
 
   const rightParts = [contextDisplay];
   if (layout.showCustomItems && state.customRight.length > 0) {
@@ -739,14 +874,29 @@ function buildRightSideForLayout(
   }
   if (layout.showSessionTokens && options.tokenVisibility !== "off") {
     const formatter = options.tokenVisibility === "dim" ? colors.subtle : colors.meta;
-    rightParts.push(colors.separator(" │ ") + formatter(formatSessionTokens(state.session.totals)));
+    rightParts.push(
+      colors.separator(" │ ") +
+        formatter(formatSessionTokens(state.session.totals, state.session.cacheHitRate)),
+    );
   }
-  if (layout.showCost && state.cost.totalUsd > 0) {
-    rightParts.push(colors.separator(" │ ") + colors.meta(formatUsdCompact(state.cost.totalUsd)));
+  // A subscription still shows its nominal cost, so the marker says it is not billed per token.
+  if (layout.showCost && (state.cost.totalUsd > 0 || state.cost.subscription)) {
+    const cost = formatUsdCompact(state.cost.totalUsd) + (state.cost.subscription ? " (sub)" : "");
+    rightParts.push(colors.separator(" │ ") + colors.meta(cost));
   }
   let modelDisplay = colors.model(shortenMiddle(state.model.id, layout.maxModelWidth));
+  if (layout.showProvider && state.model.provider) {
+    modelDisplay = colors.subtle(`(${state.model.provider}) `) + modelDisplay;
+  }
   if (layout.showThinking && state.model.thinking && state.model.thinking !== "off") {
     modelDisplay += colors.separator(" · ") + colors.warning(abbreviateThinking(state.model.thinking));
+  }
+  if (state.model.routed) {
+    modelDisplay += colors.separator(" → ") +
+      colors.model(shortenMiddle(state.model.routed.id, layout.maxModelWidth));
+    if (layout.showThinking && state.model.routed.thinking && state.model.routed.thinking !== "off") {
+      modelDisplay += colors.separator(" · ") + colors.warning(abbreviateThinking(state.model.routed.thinking));
+    }
   }
   rightParts.push(colors.separator(" │ ") + modelDisplay);
   if (options.liveTps) {
@@ -794,20 +944,29 @@ function buildLeftIdentity(
   const leftParts: string[] = [colors.meta(shortenMiddle(cwd, availableLeft))];
   let leftWidth = visibleWidth(leftParts[0]);
 
-  if (layout.showBranch && state.workspace.shortBranch) {
-    const branchSegment = colors.separator(" │ ") + colors.primary(`${GIT_ICON} ${state.workspace.shortBranch}`);
-    if (leftWidth + visibleWidth(branchSegment) <= availableLeft) {
+  if (layout.showBranch && state.workspace.branch) {
+    const branchPrefix = colors.separator(" │ ");
+    const roomForName = availableLeft - leftWidth - visibleWidth(branchPrefix) - visibleWidth(`${GIT_ICON} `);
+    // The whole name when it fits, else shortened; never to a stub.
+    const fitBranch = (room: number): string => {
+      if (visibleWidth(state.workspace.branch) <= room) return state.workspace.branch;
+      return room >= MIN_BRANCH_WIDTH ? shortenMiddle(state.workspace.branch, room) : "";
+    };
+
+    // The markers say more per column than the tail of a long name, so the
+    // name is shortened to keep them and they are dropped only as a last resort.
+    let gitSegment = layout.showGitMarkers ? renderGitMarkers(state.workspace.git, colors) : "";
+    if (gitSegment) gitSegment = colors.separator(" ") + gitSegment;
+    let name = fitBranch(roomForName - visibleWidth(gitSegment));
+    if (!name && gitSegment) {
+      gitSegment = "";
+      name = fitBranch(roomForName);
+    }
+
+    if (name) {
+      const branchSegment = branchPrefix + colors.primary(`${GIT_ICON} ${name}`) + gitSegment;
       leftParts.push(branchSegment);
       leftWidth += visibleWidth(branchSegment);
-    }
-  }
-
-  const gitMarkers = renderGitMarkers(state.workspace.git, colors);
-  if (layout.showGitMarkers && gitMarkers) {
-    const gitSegment = colors.separator(" ") + gitMarkers;
-    if (leftWidth + visibleWidth(gitSegment) <= availableLeft) {
-      leftParts.push(gitSegment);
-      leftWidth += visibleWidth(gitSegment);
     }
   }
 
@@ -830,107 +989,81 @@ function buildLeftIdentity(
   return { left, width: leftWidth };
 }
 
-function renderCompactFooter(
+/** Custom left items followed by the regular statuses, cut to `maxWidth`. */
+function formatStatusLine(
   state: FooterState,
-  width: number,
+  maxWidth: number,
   colors: ReturnType<typeof createUiColors>,
-  options: { tokenVisibility: "on" | "dim" | "off"; liveTps: string | null },
-): string[] {
-  const { right, layout } = buildAdaptiveRightSide(state, width, colors, options);
-  const rightWidth = visibleWidth(right);
-  const availableLeft = Math.max(0, width - rightWidth - 1);
-
-  if (availableLeft <= MIN_LEFT_SPACE) {
-    return [truncateToWidth(right, width)];
-  }
-
-  const identity = buildLeftIdentity(state, availableLeft, colors, layout);
-  let left = identity.left;
-  let leftWidth = identity.width;
-
-  const remainingForStatuses = Math.max(
+): string {
+  const separator = colors.separator(" │ ");
+  const custom = formatCustomStatuses(state.customLeft, maxWidth, separator, colors);
+  const remaining = Math.max(
     0,
-    availableLeft - leftWidth - visibleWidth(colors.separator(" │ ")),
+    maxWidth - visibleWidth(custom) - (custom ? visibleWidth(separator) : 0),
   );
-  const customLeftStr = layout.showCustomItems
-    ? formatCustomStatuses(
-      state.customLeft,
-      remainingForStatuses,
-      colors.separator(" │ "),
-      colors,
-    )
-    : "";
-  const remainingAfterCustom = Math.max(
-    0,
-    remainingForStatuses - visibleWidth(customLeftStr) - (customLeftStr ? visibleWidth(colors.separator(" │ ")) : 0),
-  );
-  const regularStatusStr = layout.showStatuses
-    ? formatStatuses(
-      state.statuses,
-      remainingAfterCustom,
-      colors.separator(" │ "),
-      colors.meta,
-      colors,
-    )
-    : "";
-  const statusStr = [customLeftStr, regularStatusStr].filter(Boolean).join(colors.separator(" │ "));
-  if (statusStr) {
-    left = identity.left + colors.separator(" │ ") + statusStr;
-    left = visibleWidth(left) > availableLeft ? truncateToWidth(left, availableLeft) : left;
-    leftWidth = visibleWidth(left);
-  }
-
-  const pad = " ".repeat(Math.max(1, width - leftWidth - rightWidth));
-  return [truncateToWidth(left + pad + right, width)];
+  const regular = formatStatuses(state.statuses, remaining, separator, colors.meta, colors);
+  return [custom, regular].filter(Boolean).join(separator);
 }
 
-function renderTwoLineFooter(
+/**
+ * One line when the extension statuses fit next to the identity, otherwise the
+ * statuses move to a second line. A status is only ever cut (`+N`) when it is
+ * wider than the whole terminal: a locked vault or a failed sandbox must not
+ * disappear because the branch name is long.
+ */
+export function renderFooter(
   state: FooterState,
   width: number,
   colors: ReturnType<typeof createUiColors>,
-  options: { tokenVisibility: "on" | "dim" | "off"; liveTps: string | null },
+  options: {
+    tokenVisibility: "on" | "dim" | "off";
+    liveTps: string | null;
+    /** Keep statuses on their own line even when they would fit inline. */
+    statusLine: "auto" | "always";
+  },
 ): string[] {
   const { right, layout } = buildAdaptiveRightSide(state, width, colors, options);
   const rightWidth = visibleWidth(right);
   const availableLeft = Math.max(0, width - rightWidth - 1);
+  const hasStatuses = state.statuses.length > 0 || state.customLeft.length > 0;
+  const statusLines = hasStatuses ? [truncateToWidth(formatStatusLine(state, width, colors), width)] : [];
 
   if (availableLeft <= MIN_LEFT_SPACE) {
-    return [truncateToWidth(right, width)];
+    return [truncateToWidth(right, width), ...statusLines];
+  }
+
+  if (hasStatuses && options.statusLine === "auto") {
+    // Session tokens and the live rate come and go with every turn. Lay the
+    // line out as if they were showing, or the footer would grow and shrink
+    // by a line each time the model answers.
+    const busiest = buildAdaptiveRightSide(state, width, colors, {
+      tokenVisibility: "on",
+      liveTps: options.liveTps && options.liveTps.length > TPS_PLACEHOLDER.length
+        ? options.liveTps
+        : TPS_PLACEHOLDER,
+    });
+    const busiestLeft = width - Math.max(rightWidth, visibleWidth(busiest.right)) - 1;
+    if (busiestLeft > MIN_LEFT_SPACE) {
+      const separator = colors.separator(" │ ");
+      const identity = buildLeftIdentity(state, busiestLeft, colors, busiest.layout);
+      const inline = formatStatusLine(state, Number.MAX_SAFE_INTEGER, colors);
+      if (identity.width + visibleWidth(separator) + visibleWidth(inline) <= busiestLeft) {
+        const left = identity.left + separator + inline;
+        const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - rightWidth));
+        return [truncateToWidth(left + pad + right, width)];
+      }
+    }
   }
 
   const identity = buildLeftIdentity(state, availableLeft, colors, layout);
   const pad = " ".repeat(Math.max(1, width - identity.width - rightWidth));
-  const firstLine = truncateToWidth(identity.left + pad + right, width);
-
-  if ((!layout.showStatuses || state.statuses.length === 0) && (!layout.showCustomItems || state.customLeft.length === 0)) {
-    return [firstLine];
-  }
-
-  const customLine = layout.showCustomItems
-    ? formatCustomStatuses(state.customLeft, width, colors.separator(" │ "), colors)
-    : "";
-  const remainingStatusWidth = Math.max(
-    0,
-    width - visibleWidth(customLine) - (customLine ? visibleWidth(colors.separator(" │ ")) : 0),
-  );
-  const regularLine = layout.showStatuses
-    ? formatStatuses(
-      state.statuses,
-      remainingStatusWidth,
-      colors.separator(" │ "),
-      colors.meta,
-      colors,
-    )
-    : "";
-  const statusLine = [customLine, regularLine].filter(Boolean).join(colors.separator(" │ "));
-  if (!statusLine) return [firstLine];
-  return [firstLine, truncateToWidth(statusLine, width)];
+  return [truncateToWidth(identity.left + pad + right, width), ...statusLines];
 }
 
 export default function (pi: ExtensionAPI) {
   once(pi, "pi-footer", () => {
   pi.registerFlag("footer-two-line", {
-    description: "Render footer in two lines (statuses on a second line)",
+    description: "Always render statuses on a second footer line (default: only when they do not fit)",
     type: "boolean",
     default: false,
   });
@@ -949,6 +1082,63 @@ export default function (pi: ExtensionAPI) {
   let tokenVisibility: "on" | "dim" | "off" = "off";
   let tokenVisibilityTimer: ReturnType<typeof setTimeout> | undefined;
   const activeStreams = new Map<string, { start: number; output: number }>();
+  type SessionUsage = {
+    totals: SessionTotals;
+    context: ContextUsageState;
+    cacheHitRate?: number;
+    routed?: RoutedModel;
+  };
+  let usageCache: (SessionUsage & { key: string }) | undefined;
+
+  /**
+   * Totals scan the whole session and the context figure rebuilds Pi's
+   * session projection, while the footer renders on every frame. Session
+   * entries are append-only and every append moves the leaf, so these only
+   * change with the session, its leaf, or the model whose window applies.
+   */
+  function readSessionUsage(ctx: ExtensionContext): SessionUsage {
+    const sessionManager = ctx.sessionManager;
+    const key = [
+      sessionManager.getSessionId(),
+      sessionManager.getLeafId(),
+      ctx.model?.provider,
+      ctx.model?.id,
+    ].join("\0");
+    if (usageCache?.key !== key) {
+      const entries = sessionManager.getEntries();
+      usageCache = {
+        key,
+        totals: sumSessionUsage(entries),
+        context: resolveContextUsage(ctx),
+        cacheHitRate: latestCacheHitRate(entries),
+        routed: resolveRoutedModel(ctx.model, sessionManager.getBranch()),
+      };
+    }
+    return usageCache;
+  }
+
+  /** Undefined on Pi versions without `pi.getSettings()` (before 0.99). */
+  function autoCompactEnabled(): boolean | undefined {
+    if (typeof pi.getSettings !== "function") return undefined;
+    try {
+      return pi.getSettings().compaction?.enabled ?? true;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function usesSubscription(ctx: ExtensionContext): boolean {
+    const model = ctx.model;
+    if (!model) return false;
+    // Same exception as Pi's own footer: subscription-backed despite API-key auth.
+    if (model.provider === "kimi-coding") return true;
+    try {
+      return ctx.modelRegistry.isUsingOAuth(model) &&
+        ctx.modelRegistry.getProvider(model.provider)?.auth.oauth?.isSubscription === true;
+    } catch {
+      return false;
+    }
+  }
 
   function clearTimer(timer: ReturnType<typeof setTimeout> | undefined): void {
     if (timer) clearTimeout(timer);
@@ -1116,16 +1306,19 @@ export default function (pi: ExtensionAPI) {
         },
         render(width: number): string[] {
           requestGitRefresh(ctx.cwd);
-          const twoLine = pi.getFlag("footer-two-line") === true;
           const state = buildFooterState(ctx, footerData, {
             gitStatus,
             thinkingLevel: pi.getThinkingLevel(),
             config: footerConfig,
+            ...readSessionUsage(ctx),
+            autoCompact: autoCompactEnabled(),
+            subscription: usesSubscription(ctx),
           });
-          const renderOptions = { tokenVisibility, liveTps };
-          return twoLine
-            ? renderTwoLineFooter(state, width, colors, renderOptions)
-            : renderCompactFooter(state, width, colors, renderOptions);
+          return renderFooter(state, width, colors, {
+            tokenVisibility,
+            liveTps,
+            statusLine: pi.getFlag("footer-two-line") === true ? "always" : "auto",
+          });
         },
       };
     });
@@ -1147,6 +1340,7 @@ export default function (pi: ExtensionAPI) {
     gitStatusCwd = "";
     gitStatusFetchedAt = 0;
     footerConfig = { customItems: [] };
+    usageCache = undefined;
   });
 
   });
