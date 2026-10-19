@@ -251,6 +251,60 @@ test("completed renderer callbacks do not retain closed session owners", async (
   assert.match(stdout, /released/);
 });
 
+test("a preview that stops short of the change says so once it is fully shown", async () => {
+  const added =
+    Array.from({ length: 600 }, (_, i) => `ins ${i}`).join("\n") + "\n";
+  const result = changeResult("", added);
+  const note = /88 more diff lines not shown/;
+
+  // Collapsed, only part of the stored preview is visible.
+  assert.doesNotMatch(await rendered(result, ctx()), note);
+
+  const context = ctx();
+  const ready = new Promise<void>((resolve) => {
+    context.invalidate = resolve;
+  });
+  const expanded = { ...options, expanded: true };
+  renderResult(result, expanded, theme, context);
+  await ready;
+  const text = renderResult(result, expanded, theme, context)
+    .render(120)
+    .join("\n");
+  assert.match(text, /ins 511/);
+  assert.match(text, note);
+});
+
+test("a historical diff skipped for lack of time is computed on a later render", async () => {
+  const change = (name: string) => ({
+    path: `/tmp/${name}.txt`,
+    oldContent: `${name} old\n`,
+    newContent: `${name} new\n`,
+    firstChangedLine: 1,
+  });
+  const result = {
+    content: [{ type: "text", text: "Edited." }],
+    details: { fileChanges: [change("first"), change("second")] },
+  };
+  const context = ctx();
+  const realNow = Date.now;
+  // The clock jumps past the render deadline once the first diff is done.
+  let reads = 0;
+  Date.now = () => realNow() + (reads++ > 1 ? 60_000 : 0);
+  try {
+    renderResult(result as any, options, theme, context);
+  } finally {
+    Date.now = realNow;
+  }
+  const omitted = () =>
+    (context.state._pieViews as { preview: { omitted?: string } }[]).map(
+      (view) => view.preview.omitted !== undefined,
+    );
+  assert.deepEqual(omitted(), [false, true]);
+
+  renderResult(result as any, options, theme, context);
+  assert.deepEqual(omitted(), [false, false]);
+});
+
 test("long-line word diffs use the linear renderer", async () => {
   const before =
     Array.from({ length: 200 }, (_, i) => `a${i}`).join(" ") + "\n";

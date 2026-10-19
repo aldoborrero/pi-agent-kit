@@ -24,7 +24,7 @@ Legacy and patch modes retain a **virtual preflight pass**. All modes use Pi’s
 
 Every replacement targets the **original file**, not the result of previous replacements. Each `oldText` must be unique and edits must not overlap. Missing, ambiguous, overlapping, empty, and net no-op replacements fail before writing. Pi handles combined Unicode/whitespace fuzzy matching, preserves unchanged lines, and restores BOM/line endings. Native results include Pi's unified `details.patch` plus compact `details.fileChanges` for split-diff rendering. Oversized patches are replaced by an empty string with an explicit `patchOmitted` reason, never by an invalid truncated patch.
 
-The argument preparation hook also accepts `edits` encoded as a JSON string or a single replacement object. `edits` cannot be mixed with legacy replacement fields, `multi`, or `patch`.
+The argument preparation hook also accepts `edits` encoded as a JSON string or a single replacement object, and, as Pi does, treats a top-level `oldText`/`newText` pair sent next to `edits` as one more edit. `edits` cannot be mixed with `multi` or `patch`.
 
 ### 2. Classic (legacy single edit)
 
@@ -70,11 +70,11 @@ You can also mix a top-level single edit with `multi` — the top-level edit is 
 }
 ```
 
-Multi mode first validates the entire batch: if any edit fails preflight, no files are changed. During the real apply pass, unexpected matching failures can be reported per edit; I/O and abort failures trigger best-effort rollback. Unlike native `edits[]`, legacy `multi` retains positional duplicate matching and redundant-edit skipping.
+Multi mode first validates the entire batch: if any edit fails preflight, no files are changed. During the real apply pass, unexpected matching failures can be reported per edit; I/O and abort failures trigger best-effort rollback. Unlike native `edits[]`, legacy `multi` retains positional duplicate matching and redundant-edit skipping: an `oldText` may occur as many times in the original file as there are edits for it, each edit taking one occurrence in file order. More occurrences than edits is ambiguous and rejected, even when some of them sit inside a region another edit replaces.
 
 ### 4. Patch (Codex-style)
 
-Pass a `patch` string delimited by `*** Begin Patch` / `*** End Patch`. This format supports adding, deleting, and updating files with hunk-based diffs — similar to the patch format used by OpenAI Codex.
+Pass a `patch` string delimited by `*** Begin Patch` / `*** End Patch`. This is the patch format of OpenAI Codex's `apply_patch`: it adds, deletes, updates and renames files with hunk-based diffs.
 
 ```
 *** Begin Patch
@@ -82,9 +82,10 @@ Pass a `patch` string delimited by `*** Begin Patch` / `*** End Patch`. This for
 +export const greeting = "hello";
 *** Delete File: src/deprecated.ts
 *** Update File: src/existing.ts
-@@ function oldName() {
--function oldName() {
-+function newName() {
+@@ export class Greeter {
+   constructor() {}
+-  oldName() {
++  newName() {
 *** End Patch
 ```
 
@@ -92,25 +93,36 @@ Pass a `patch` string delimited by `*** Begin Patch` / `*** End Patch`. This for
 
 | Header                    | Effect                                                              |
 | ------------------------- | ------------------------------------------------------------------- |
-| `*** Add File: <path>`    | Creates the file with `+`-prefixed lines as content (errors if the file already exists) |
+| `*** Add File: <path>`    | Creates the file with `+`-prefixed lines as content, creating missing parent directories (errors if the file already exists) |
 | `*** Delete File: <path>` | Removes the file (errors if it does not exist)                      |
-| `*** Update File: <path>` | Applies one or more `@@`-delimited hunks to the file                |
+| `*** Update File: <path>` | Applies one or more hunks to the file                               |
+| `*** Move to: <path>`     | Right after `*** Update File:`, writes the updated content to the new path and removes the old one (errors if the destination exists) |
 
-> **Note:** `*** Move to:` (rename) operations are not supported and will throw an error.
+**Inside an `*** Update File:` block:**
 
-Patch mode is **all-or-nothing**: any operation failure triggers a full rollback of every operation already applied in the patch (recreates deleted files, removes added files, restores updated files).
+- Each line starts with a space (context), `-` (removed) or `+` (added). A bare empty line is an unchanged empty line.
+- `@@` starts a new hunk; the first hunk of a file may omit it. `@@ <line>` anchors the hunk: the search starts after the first line matching `<line>`. The anchor is a line *before* the hunk, so do not repeat it as the hunk's first line.
+- `*** End of File` after a hunk makes it match at the end of the file.
+- Hunks must be listed in file order.
+
+**Matching.** A hunk's context and removed lines must match whole consecutive lines of the file — a hunk line never matches part of a longer line. Four passes are tried in order: exact, ignoring trailing whitespace, ignoring leading and trailing whitespace, and additionally folding typographic dashes, quotes and spaces to ASCII. The first match after the previous hunk wins; there is no uniqueness check, so use context lines or an anchor to pin down repeated code. Context lines keep the file's own text even when they matched loosely; removed lines are replaced by the added lines exactly as written in the patch, including their indentation.
+
+A hunk with only added lines is inserted after its anchor line, or appended to the end of the file when it has no anchor. An updated file always ends with a newline.
+
+Patch mode is **all-or-nothing**: any operation failure triggers a full rollback of every operation already applied in the patch (recreates deleted files, removes added files, restores updated and moved files). Directories created for a new file are left in place.
 
 #### Codex apply_patch compatibility
 
-The patch engine implements a pragmatic subset of the Codex `apply_patch` format:
+The parser and the hunk matcher follow Codex's `apply-patch` crate (checked against Codex 0.158.0 and its scenario fixtures), including the heredoc-wrapped form (`<<'EOF' … EOF`) some models send. The differences are deliberate:
 
-| Feature                           | Status    | Notes                                                                                     |
-| --------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
-| `@@` hunk header                  | Required  | Every hunk inside an `*** Update File:` block must start with `@@`                        |
-| Trailing-whitespace tolerance     | Supported | Hunks fall back to per-line `trimEnd` matching when exact `indexOf` misses                |
-| Full trim / unicode-normalized    | Not supported | Only `trimEnd` — normalize curly quotes or dashes in the patch before sending          |
-| `*** End of File` sentinel hunks  | Not supported | Use a normal hunk anchored on the last real line                                       |
-| `*** Move to:` rename             | Rejected  | Emit an Add + Delete pair instead                                                         |
+| Behaviour                          | Codex                                   | pi-edit                                                    |
+| ---------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| A later operation fails            | Earlier operations stay applied         | The whole patch is rolled back                             |
+| `Add File` on an existing file     | Overwrites it                           | Errors — use `Update File`, or `Delete File` + `Add File`  |
+| `Move to` an existing file         | Overwrites it                           | Errors                                                     |
+| Added-only hunk with a `@@` anchor | Appended to the end of the file         | Inserted after the anchor line                             |
+| CRLF / BOM files                   | Changed lines are written with LF       | The file's line ending and BOM are kept                    |
+| Mixed line endings in one file     | Kept per line (opt-in mode)             | Normalized to the file's first line ending, as Pi's native edit does |
 
 ## Parameters
 
@@ -142,10 +154,17 @@ The patch engine implements a pragmatic subset of the Codex `apply_patch` format
 | `multi` item missing `path` and no top-level `path` set              | Throws identifying which item is affected                         |
 | `oldText` not found in file (single mode)                            | Preflight throws; no files are modified                           |
 | `oldText` not found in file (batch mode with `continueOnError`)      | Per-edit failure recorded; sibling edits still apply             |
-| Patch hunk/context anchor not found                                  | Preflight throws; no files are modified                           |
+| `oldText` equal to `newText`, or a replacement that leaves the file as it was | Throws "No changes made" instead of reporting an edit     |
+| Two edits of a batch overlap in the file                             | Throws asking to merge them; no files are modified                |
+| Patch hunk/context anchor not found as whole lines                   | Preflight throws; no files are modified                           |
 | Target not writable / not creatable                                  | Throws before any mutation (all modes)                            |
 | `Add File` on an existing file                                       | Throws — no silent overwrite                                      |
-| `*** Move to:` operation in patch                                    | Throws — not supported                                            |
+| `*** Move to:` onto an existing file                                 | Throws — no silent overwrite                                      |
+| Malformed patch                                                      | Throws naming the offending patch line                            |
+
+## Paths
+
+Legacy and patch modes resolve paths the way Pi's built-in tools do: `~` expands to the home directory, typographic spaces become plain ones, and the `@` that prompts put in front of a mentioned file is dropped. Unlike the built-in tools, a leading `@` that belongs to a real name (`@types/index.d.ts`) is kept: it is only dropped when that turns a missing file into an existing one. The mutation locks are taken on the same resolved path.
 
 ## Encoding
 
@@ -155,7 +174,7 @@ Native `edits[]` uses Pi’s encoding handling (including lone `\r` normalizatio
 
 - **BOM** (byte-order mark) — detected on read, re-prepended on write.
 - **Line endings** — CRLF (`\r\n`) and LF (`\n`) are both detected and restored. The first line ending in the file wins.
-- **Matching** — all `oldText` matching and hunk anchoring operates on LF-normalized, BOM-stripped text, so you can write `oldText` with plain `\n` even when the file uses CRLF.
+- **Matching** — all `oldText` matching and hunk anchoring operates on LF-normalized, BOM-stripped text, so you can write `oldText` with plain `\n` even when the file uses CRLF. `oldText` and `newText` written with `\r\n` are normalized the same way, so the file's own line ending is what reaches the disk.
 - **New files** — files created by `Add File` default to LF with no BOM.
 - **Out of scope** — lone `\r` (classic Mac line endings) is not handled.
 
@@ -163,28 +182,27 @@ Native `edits[]` uses Pi’s encoding handling (including lone `\r` normalizatio
 
 ### Preflight Validation
 
-For legacy and patch modes, before writing to disk, every edit is applied to an in-memory virtual filesystem. If any replacement fails — wrong `oldText`, file not found, missing context — the operation is aborted and no real files are modified. The preflight also checks write permissions against the real filesystem so read-only targets fail fast. Classic mode keeps an operation-local prepared plan. The real pass rereads the file, rechecks permissions, and reuses matching only if the current contents and edit inputs still agree; otherwise it rematches. Preflight, revalidation and rollback stay inside the shared mutation locks.
+For legacy and patch modes, before writing to disk, every edit is applied to an in-memory virtual filesystem. If any replacement fails — wrong `oldText`, file not found, missing context, a directory where a file is expected — the operation is aborted and no real files are modified. The preflight also checks write permissions against the real filesystem so read-only targets fail fast. Classic mode keeps an operation-local prepared plan. The real pass rereads the file, rechecks permissions, and reuses matching only if the current contents and edit inputs still agree; otherwise it rematches. Preflight, revalidation and rollback stay inside the shared mutation locks.
 
 ### Atomic Multi-File Rollback
 
-When an edit spans multiple files, each file's pre-edit content is snapshotted before writing. If a later file fails mid-write, every file already written is restored from its snapshot (best-effort). For patch mode, the rollback covers all three operation types: recreates deleted files, removes added files, and restores updated files.
+When an edit spans multiple files, each file's pre-edit content is snapshotted before writing. If a later file fails mid-write, every file already written is restored from its snapshot (best-effort). For patch mode, the rollback covers every operation type: recreates deleted files, removes added files, restores updated files, and moves renamed files back. A file that is recreated, moved, or replaced through `Delete File` + `Add File` keeps its permission bits, so scripts stay executable.
 
-### Positional Ordering for Same-File Edits
+Symlinks are followed when reading and writing, and a symlink and its target count as one file: edits that reach it by either name, in a `multi` batch or in a patch, are matched together and locked once. `Delete File` on a symlink removes the link and leaves its target alone; if the patch is rolled back the link is put back as a link.
 
-When multiple `multi` edits target the same file, they are automatically sorted by their position in the original file content (top-to-bottom). This ensures the forward-search cursor works correctly regardless of the order the model listed the edits.
+### Positional Matching for Same-File Edits
 
-### Tiered Fuzzy Matching for Classic Edits
+Every `multi` edit of a file is matched against the file's original content, so the order in which the model lists the edits does not matter and no edit sees the text another one inserts. When several edits share the same `oldText`, they take its occurrences in file order: the first such edit gets the first occurrence, the second edit the second one, wherever other edits fall in between. Edits must target disjoint regions; overlapping ones are rejected.
 
-Classic `oldText` lookups escalate through an ordered list of normalizer passes:
+### Fuzzy Matching for Classic Edits
 
-1. **Exact** — character-for-character match
-2. **Curly → straight quotes** — `'` / `'` / `"` / `"` in `oldText` are rewritten to ASCII before the second search
-3. **Trailing whitespace tolerance** — per-line `trimEnd` on both sides catches the most frequent class of mismatch
-4. **Unicode NFKC**, dash and special-space normalization
+An `oldText` that is not found exactly is looked up again with the tolerance of Pi's built-in edit, all at once: Unicode compatibility forms folded (NFKC, so `…` matches `...`), trailing whitespace ignored on every line, and typographic quotes, dashes and spaces treated as their ASCII equivalents.
 
-Normalization requirements are classified once per file/pass. Uniqueness counting stops as soon as ambiguity is established, including fuzzy variants before exact hits. Empty fuzzy patterns are skipped, while exact whitespace edits remain valid; match offsets must advance.
+The match is mapped back onto the file's own text, so only what `oldText` covers is replaced: the rest of a touched line keeps its original characters and trailing whitespace. Only where a touched line cannot be mapped column by column is its unmatched part rewritten in normalized form.
 
-Patch `@@` hunks also support a `trimEnd` fallback when exact `indexOf` misses.
+The file is normalized once and shared by all its edits. Uniqueness counting stops as soon as ambiguity is established, and a fuzzy variant elsewhere in the file makes an exact match ambiguous too. An `oldText` that is only whitespace is matched exactly or not at all.
+
+Patch hunks use their own whole-line matcher, described under [Patch](#4-patch-codex-style).
 
 ### Redundant Edit Detection
 
@@ -198,7 +216,7 @@ If the same `oldText → newText` pair appears more than once in a `multi` batch
 | ---- | ---------- | ------- |
 | Patch write-access check | Not present — partial writes possible | Eager preflight on all patch targets before any mutation |
 | Patch atomic rollback | Not present — mid-patch failures leave FS in partial state | Full rollback: recreates deleted files, removes added files, restores updated files |
-| `Add File` on existing file | Silently overwrites | Throws — Codex-compatible behavior |
+| `Add File` on existing file | Silently overwrites | Throws — no silent overwrite |
 | Encoding (BOM / CRLF) | Lost on read/write — CRLF files corrupted | Detected on read, restored on write across all modes |
 
 ## Rendering and performance bounds
@@ -215,7 +233,7 @@ If the same `oldText → newText` pair appears more than once in a `multi` batch
 
 | Work | Default bound |
 |---|---|
-| Local line-diff search | 15 ms soft timeout and 512 edit distance |
+| Local line-diff search | 15 ms soft timeout and 512 edit distance; beyond it, one removed-then-added block showing at most 512 lines per side |
 | Raw before + after input | 8 Mi UTF-16 code units |
 | Stored preview content / native patch / text diff | 64 Ki code units each (metadata adds overhead) |
 | Preview rows / individual line length | 2,000 rows / 2,000 code units |
@@ -223,7 +241,13 @@ If the same `oldText → newText` pair appears more than once in a `multi` batch
 | Expanded rendering | 2,000 logical diff rows total |
 | Files rendered | At most 20 collapsed / 100 expanded |
 
-The timeout is a **soft search budget**, not a hard real-time guarantee: tokenization, parsing and bounded rendering still take time. Historical multi-file conversion also has a per-render budget. Limits produce explicit omission/plain-diff notices and never undo a successful file edit. Expanding increases the visible budget, but does not bypass safety bounds. Pi's native matching and initial diff generation still run upstream; this extension does not impose a timeout on that implementation.
+The timeout is a **soft search budget**, not a hard real-time guarantee: tokenization, parsing and bounded rendering still take time. Historical multi-file conversion also has a per-render budget. Limits never undo a successful file edit, and they shorten the diff rather than drop it:
+
+- A change too large for the line-diff search (more than 512 added plus removed lines, such as a new 600-line file or a 300-line rewrite) is shown as a single block between the unchanged leading and trailing lines, removed lines first. That is exact for a pure insertion or deletion.
+- A line longer than the limit is cut and ends with `…`.
+- When the rows or stored content run out, the preview stops and carries `truncated: "N more diff lines not shown"`; `added`/`removed` and `firstChangedLine` still describe the whole change. `details.diff` ends with the same note.
+
+Only inputs over the raw size limit, and native patches over the stored size limit, are omitted entirely. Expanding increases the visible budget, but does not bypass safety bounds. Pi's native matching and initial diff generation still run upstream; this extension does not impose a timeout on that implementation.
 
 Outside TUI, `content[0].text` remains the execution summary and `details.diff` the bounded gutter diff. Compact previews are retained in headless mode so the session remains viewable later.
 
@@ -254,7 +278,7 @@ Outside TUI, `content[0].text` remains the execution summary and `details.diff` 
 }
 ```
 
-An omitted preview has `lines: []` and an explicit `omitted` reason; its zero counts mean unavailable statistics, not zero changes. Consumers of the previous raw-snapshot format should migrate to `format: "hunks-v1"`.
+An omitted preview has `lines: []` and an explicit `omitted` reason; its zero counts mean unavailable statistics, not zero changes. A `truncated` preview keeps its leading lines and complete counts. Consumers of the previous raw-snapshot format should migrate to `format: "hunks-v1"`.
 
 ### Benchmarks
 

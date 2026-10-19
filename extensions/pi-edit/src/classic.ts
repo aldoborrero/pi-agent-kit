@@ -1,228 +1,289 @@
 /**
  * Classic edit engine — (path, oldText, newText) triples applied against a
- * Workspace, with positional same-file ordering, curly-quote fallback, and
- * atomic multi-file rollback.
+ * Workspace, with positional duplicate matching, fuzzy fallback, and atomic
+ * multi-file rollback.
  *
  * The core loop groups edits by their absolute path so all hits against a
- * file happen in one read/mutate/write cycle. Within a group, entries are
- * sorted by the position of their `oldText` in the original content, so a
- * model that lists edits bottom-up still applies them top-down.
+ * file happen in one read/mutate/write cycle. Every edit of a group is matched
+ * against the file's original content; the replacements are then applied in
+ * one pass, so the order in which the model lists them does not matter.
  */
 
-import { isAbsolute, resolve as resolvePath } from "node:path";
-
 import { generateDiffString } from "./diff.ts";
+import { normalizeToLf } from "./encoding.ts";
+import { canonicalPath, resolveEditPath } from "./paths.ts";
 import type { EditItem, EditResult, OnFileChange, Workspace } from "./types.ts";
 
 // ---------------------------------------------------------------------------
 // Text matching
 // ---------------------------------------------------------------------------
 
-const normalizeCurlyQuotes = (s: string): string =>
-  s.replace(/[‘’‚‛]/g, "'").replace(/[“”„‟]/g, '"');
-
-const trimTrailingPerLine = (s: string): string =>
-  s
-    .split("\n")
-    .map((l) => l.trimEnd())
-    .join("\n");
-
-// NFKC compatibility normalization — folds together compatibility variants
-// (ligatures, full-width forms, etc.) that render identically but differ in
-// code points, matching the built-in edit tool's first fuzzy pass.
-const normalizeUnicode = (s: string): string => s.normalize("NFKC");
-
-// Unicode dash/hyphen variants → ASCII hyphen.
-// U+2010 hyphen, U+2011 non-breaking hyphen, U+2012 figure dash,
-// U+2013 en-dash, U+2014 em-dash, U+2015 horizontal bar, U+2212 minus.
-const normalizeDashes = (s: string): string => s.replace(/[‐‑‒–—―−]/g, "-");
-
-// Special/non-breaking spaces → regular space.
-// U+00A0 NBSP, U+2002–U+200A various widths, U+202F narrow NBSP,
-// U+205F medium math space, U+3000 ideographic space.
-const normalizeSpaces = (s: string): string => s.replace(/[  -   　]/g, " ");
+// Printable ASCII that does not end in whitespace is already normalized.
+const PLAIN_LINE = /^(?:[\t\x20-\x7E]*[\x21-\x7E])?$/;
 
 /**
- * Ordered list of passes `findActualString` tries when matching `oldText`
- * inside file content. Each pass applies a normalizer to *both* `oldText`
- * and `content`; the first one that locates the transformed string wins.
- *
- * The array is the extension point: add a new pass here to gain tolerance
- * for a new class of model/file mismatch (e.g. dash variants, NBSP).
+ * One line as fuzzy matching sees it, with the same tolerance as Pi's built-in
+ * edit: compatibility forms folded (NFKC), trailing whitespace dropped, and
+ * typographic quotes, dashes and spaces turned into their ASCII equivalents.
  */
-const MATCH_PASSES: readonly ((s: string) => string)[] = [
-  (s) => s, // exact
-  normalizeCurlyQuotes, // curly → straight quotes
-  trimTrailingPerLine, // trailing-whitespace tolerance per line
-  normalizeUnicode, // NFKC compatibility folding
-  normalizeDashes, // unicode dash/hyphen → ASCII hyphen
-  normalizeSpaces, // special/non-breaking spaces → regular space
-];
+function normalizeLine(line: string): string {
+  if (PLAIN_LINE.test(line)) return line;
+  return line
+    .normalize("NFKC")
+    .trimEnd()
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C-\u201F]/g, '"')
+    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, " ");
+}
 
-// Compute once per file/pass, not once per occurrence. The forward cursor
-// only searches the untouched suffix, so inserted text before it cannot add
-// normalization requirements to subsequent searches.
-type MatchProfile = readonly boolean[];
-function matchProfile(content: string): MatchProfile {
-  return MATCH_PASSES.map(
-    (transform, i) => i > 0 && transform(content) !== content,
-  );
+const normalizeText = (text: string): string =>
+  text.split("\n").map(normalizeLine).join("\n");
+
+/**
+ * Where an edit lands in the original content: `[pos, end)` is replaced by
+ * `prefix + newText + suffix`.
+ *
+ * `prefix` and `suffix` are empty unless a fuzzy match starts or ends inside a
+ * line whose text could not be mapped back column by column (NFKC changes
+ * lengths). The whole line is then replaced and its unmatched part is put back
+ * in normalized form.
+ */
+interface Match {
+  pos: number;
+  end: number;
+  prefix: string;
+  suffix: string;
+}
+
+/** The original and the normalized content of a file, line by line. */
+interface FuzzyView {
+  lines: string[];
+  normalized: string[];
+  /** Offset of each line in the original content. */
+  starts: number[];
+  /** The normalized lines joined, and the offset of each line in it. */
+  text: string;
+  normalizedStarts: number[];
+  /** Whether normalization left the content as it was. */
+  plain: boolean;
+}
+
+function lineStarts(lines: string[]): number[] {
+  const starts: number[] = [];
+  let offset = 0;
+  for (const line of lines) {
+    starts.push(offset);
+    offset += line.length + 1; // +1 for \n
+  }
+  return starts;
+}
+
+function createFuzzyView(content: string): FuzzyView {
+  const lines = content.split("\n");
+  // Normalizing line by line keeps both views aligned: line N of one is line
+  // N of the other, which is what lets a match be mapped back.
+  const normalized = lines.map(normalizeLine);
+  const text = normalized.join("\n");
+  return {
+    lines,
+    normalized,
+    starts: lineStarts(lines),
+    text,
+    normalizedStarts: lineStarts(normalized),
+    plain: text === content,
+  };
+}
+
+/** Index of the line containing `offset`. */
+function lineAt(starts: number[], offset: number): number {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if (starts[mid]! <= offset) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+}
+
+/** Map `[start, end)` of the normalized text back onto the original content. */
+function mapToOriginal(view: FuzzyView, start: number, end: number): Match {
+  const first = lineAt(view.normalizedStarts, start);
+  const last = lineAt(view.normalizedStarts, end);
+  const startColumn = start - view.normalizedStarts[first]!;
+  const endColumn = end - view.normalizedStarts[last]!;
+
+  const firstStart = view.starts[first]!;
+  const lastLine = view.lines[last]!;
+  const lastEnd = view.starts[last]! + lastLine.length;
+
+  // What the match leaves of its first and last line, in normalized form.
+  const before = view.normalized[first]!.slice(0, startColumn);
+  const after = view.normalized[last]!.slice(endColumn);
+
+  // Keep the original text around the match whenever it is that same text.
+  const keepsBefore = view.lines[first]!.startsWith(before);
+  const pos = firstStart + (keepsBefore ? startColumn : 0);
+
+  let matchEnd = lastEnd;
+  let suffix = after;
+  if (endColumn === 0) {
+    // The match ends on a line boundary, which is the same in both views.
+    matchEnd = view.starts[last]!;
+    suffix = "";
+  } else if (after === "") {
+    // Up to the end of the line: any trailing whitespace goes with the match.
+    suffix = "";
+  } else {
+    const trimmedLength = lastLine.trimEnd().length;
+    if (lastLine.slice(0, trimmedLength).endsWith(after)) {
+      matchEnd = view.starts[last]! + trimmedLength - after.length;
+      suffix = "";
+    }
+  }
+
+  // Both ends were found by text, independently; on one line they could cross.
+  if (matchEnd < pos) {
+    return { pos: firstStart, end: lastEnd, prefix: before, suffix: after };
+  }
+  return { pos, end: matchEnd, prefix: keepsBefore ? "" : before, suffix };
+}
+
+interface Matcher {
+  /** Non-overlapping exact occurrences at or after `offset`, at most `limit`. */
+  exact(oldText: string, limit: number, offset?: number): Match[];
+  /** The same for the normalized form of `oldText` in the normalized content. */
+  fuzzy(oldText: string, limit: number, offset?: number): Match[];
+  /**
+   * Where edits for `oldText` may land, and how often it occurs for the
+   * uniqueness check: the larger of the exact and the fuzzy count, so a fuzzy
+   * variant elsewhere in the file makes an exact match ambiguous too.
+   */
+  find(
+    oldText: string,
+    limit: number,
+    offset?: number,
+  ): { matches: Match[]; occurrences: number };
 }
 
 /**
- * Locate `oldText` inside `content` starting at `offset`. Falls back through
- * `MATCH_PASSES` when the exact search fails — most commonly when the model
- * wrote curly quotes but the file has straight ASCII.
+ * Occurrence finder for one file. The normalized view is built on first use
+ * and shared by every edit of the file, instead of once per edit.
+ */
+function createMatcher(content: string): Matcher {
+  let view: FuzzyView | undefined;
+
+  function exact(oldText: string, limit: number, offset = 0): Match[] {
+    const matches: Match[] = [];
+    if (!oldText) return matches;
+    for (
+      let pos = content.indexOf(oldText, offset);
+      pos !== -1 && matches.length < limit;
+      pos = content.indexOf(oldText, pos + oldText.length)
+    ) {
+      matches.push({ pos, end: pos + oldText.length, prefix: "", suffix: "" });
+    }
+    return matches;
+  }
+
+  // `exactMatches` spares a second scan when the caller already has them and
+  // fuzzy matching turns out to be the same search.
+  function fuzzy(
+    oldText: string,
+    limit: number,
+    offset = 0,
+    exactMatches?: Match[],
+  ): Match[] {
+    const needle = normalizeText(oldText);
+    // A needle that normalizes to nothing but whitespace would match at every
+    // line end; exact matching is the only meaningful search for it.
+    if (needle.trim() === "") return [];
+    view ??= createFuzzyView(content);
+    // Nothing to gain when neither side changes under normalization.
+    if (needle === oldText && view.plain) {
+      return exactMatches ?? exact(oldText, limit, offset);
+    }
+    const { text } = view;
+    const occurrences = (wanted: string): Match[] => {
+      const matches: Match[] = [];
+      for (
+        let pos = text.indexOf(wanted);
+        pos !== -1 && matches.length < limit;
+        pos = text.indexOf(wanted, pos + wanted.length)
+      ) {
+        const match = mapToOriginal(view!, pos, pos + wanted.length);
+        if (match.pos >= offset) matches.push(match);
+      }
+      return matches;
+    };
+    const matches = occurrences(needle);
+    // Normalizing oldText drops whitespace at the end of each of its lines,
+    // which is real text when oldText stops in the middle of a line. Where the
+    // text as written fits the normalized content just as often, it says more
+    // precisely what to replace.
+    if (needle !== oldText) {
+      const asWritten = occurrences(oldText);
+      if (asWritten.length === matches.length) return asWritten;
+    }
+    return matches;
+  }
+
+  function find(oldText: string, limit: number, offset = 0) {
+    const exactMatches = exact(oldText, limit, offset);
+    const fuzzyMatches = fuzzy(oldText, limit, offset, exactMatches);
+    return {
+      matches:
+        exactMatches.length >= fuzzyMatches.length
+          ? exactMatches
+          : fuzzyMatches,
+      occurrences: Math.max(exactMatches.length, fuzzyMatches.length),
+    };
+  }
+
+  return { exact, fuzzy, find };
+}
+
+/**
+ * Locate `oldText` inside `content` at or after `offset`: exactly, or failing
+ * that through fuzzy matching — most commonly when the model wrote curly
+ * quotes but the file has straight ASCII, or lost trailing whitespace.
  *
- * Returns `{ pos, actualOldText }` on match, `undefined` otherwise. Callers
- * must use `actualOldText.length` (not the original oldText length) when
- * splicing, since the matched region may differ from the requested text
- * after normalization.
+ * Returns `{ pos, actualOldText }` on match, `undefined` otherwise.
+ * `actualOldText` is the text of the file that matched, which may differ from
+ * the requested text after normalization.
  */
 export function findActualString(
   content: string,
   oldText: string,
   offset: number,
-  profile?: MatchProfile,
 ): { pos: number; actualOldText: string } | undefined {
-  // Empty fuzzy patterns and offsets past EOF must never produce a zero-width
-  // match: occurrence counting relies on strictly advancing through the file.
+  // Empty patterns and offsets past EOF must never produce a zero-width match.
   if (!oldText || offset >= content.length) return undefined;
-  offset = Math.max(0, offset);
-  // Fast path: exact match with no normalization.
-  const exact = content.indexOf(oldText, offset);
-  if (exact !== -1) return { pos: exact, actualOldText: oldText };
-
-  // Slower passes: normalize both sides and map the position back to the
-  // original content. We search in the normalized content but return the
-  // position and length in the *original* so the caller can splice correctly.
-  profile ??= matchProfile(content);
-
-  for (let i = 1; i < MATCH_PASSES.length; i++) {
-    const transform = MATCH_PASSES[i]!;
-    const normOld = transform(oldText);
-    if (!normOld) continue;
-    if (!profile[i] && normOld === oldText) continue;
-    const normContent = profile[i] ? transform(content) : content;
-
-    const normalizedOffset = profile[i]
-      ? transform(content.slice(0, offset)).length
-      : offset;
-    const pos = normContent.indexOf(normOld, normalizedOffset);
-    if (pos !== -1) {
-      // Map back: the character at `pos` in normalised content corresponds
-      // to the same index in the original (our normalizers preserve length
-      // for all passes except trimTrailingPerLine). For trimEnd we need the
-      // actual substring from original content that matches.
-      const actualOld = content.slice(pos, pos + normOld.length);
-      // Verify the mapped slice actually normalizes to the same thing.
-      if (pos >= offset && transform(actualOld) === normOld) {
-        return { pos, actualOldText: actualOld };
-      }
-      // If the lengths shifted (trimEnd can shrink lines), fall back to a
-      // line-aligned search: find the lines in the original content.
-      const match = findByNormalizedLines(content, oldText, offset, transform);
-      if (match) return match;
+  const matcher = createMatcher(content);
+  const from = Math.max(0, offset);
+  const match =
+    matcher.exact(oldText, 1, from)[0] ?? matcher.fuzzy(oldText, 1, from)[0];
+  return (
+    match && {
+      pos: match.pos,
+      actualOldText: content.slice(match.pos, match.end),
     }
-  }
-  return undefined;
+  );
 }
 
 /**
- * Conservative uniqueness check in each matching domain. Count at most `limit`
- * hits (the caller only needs to establish ambiguity). Never use fuzzy needles
- * that normalize to empty, and do not rescan/normalize after every occurrence.
+ * Conservative uniqueness check, counting fuzzy variants too. Counts at most
+ * `limit` hits (callers only need to establish ambiguity).
  */
 export function countOccurrences(
   content: string,
   oldText: string,
   offset = 0,
   limit = Number.POSITIVE_INFINITY,
-  profile: MatchProfile = matchProfile(content),
 ): number {
   if (!oldText || offset >= content.length) return 0;
-  const countIn = (haystack: string, needle: string, start: number): number => {
-    if (!needle) return 0;
-    let count = 0;
-    for (
-      let pos = haystack.indexOf(needle, start);
-      pos !== -1;
-      pos = haystack.indexOf(needle, pos + needle.length)
-    ) {
-      if (++count >= limit) break;
-    }
-    return count;
-  };
-  let count = countIn(content, oldText, offset);
-  if (count >= limit) return count;
-  for (let i = 1; i < MATCH_PASSES.length; i++) {
-    const transform = MATCH_PASSES[i]!;
-    const needle = transform(oldText);
-    if (!needle || (!profile[i] && needle === oldText)) continue;
-    const haystack = profile[i] ? transform(content) : content;
-    const start = profile[i]
-      ? transform(content.slice(0, offset)).length
-      : offset;
-    count = Math.max(count, countIn(haystack, needle, start));
-    if (count >= limit) break;
-  }
-  return count;
-}
-
-/**
- * Line-by-line normalized search. Used when a normalizer changes string
- * length (e.g. trimEnd) so character offsets between original and normalized
- * content no longer align 1:1.
- */
-function findByNormalizedLines(
-  content: string,
-  oldText: string,
-  offset: number,
-  normalize: (s: string) => string,
-): { pos: number; actualOldText: string } | undefined {
-  if (offset >= content.length) return undefined;
-  const contentLines = content.split("\n");
-  const oldLines = oldText.split("\n");
-  if (oldLines.length === 0) return undefined;
-
-  const normOldLines = oldLines.map((l) => normalize(l));
-
-  // Character offset → line index.
-  let charCount = 0;
-  let startLine = 0;
-  for (let i = 0; i < contentLines.length; i++) {
-    if (charCount + contentLines[i]!.length >= offset) {
-      startLine = i;
-      break;
-    }
-    charCount += contentLines[i]!.length + 1; // +1 for \n
-  }
-
-  for (let i = startLine; i <= contentLines.length - oldLines.length; i++) {
-    let match = true;
-    for (let j = 0; j < normOldLines.length; j++) {
-      if (normalize(contentLines[i + j]!) !== normOldLines[j]!) {
-        match = false;
-        break;
-      }
-    }
-    if (match) {
-      // Compute character position and actual substring from original.
-      let pos = 0;
-      for (let k = 0; k < i; k++) pos += contentLines[k]!.length + 1;
-      if (pos < offset) continue;
-      const endLine = i + oldLines.length - 1;
-      let endPos = 0;
-      for (let k = 0; k <= endLine; k++) endPos += contentLines[k]!.length + 1;
-      endPos--; // don't include the final \n after last matched line
-      // A trailing empty oldLines entry already includes oldText's final LF.
-
-      const actualOldText = content.slice(pos, endPos);
-      return { pos, actualOldText };
-    }
-  }
-
-  return undefined;
+  return createMatcher(content).find(oldText, limit, offset).occurrences;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,24 +295,23 @@ interface IndexedEdit {
   edit: EditItem;
 }
 
-function toAbsolute(path: string, cwd: string): string {
-  return isAbsolute(path) ? resolvePath(path) : resolvePath(cwd, path);
-}
-
 /**
- * Bucket a flat edit list by its resolved absolute path. The returned Map
+ * Bucket a flat edit list by the file each edit targets. The returned Map
  * preserves insertion order, which is the order files are processed in the
  * apply loop — making the first-seen file also the first to be mutated on
  * disk.
+ *
+ * Files are keyed by where they really live: edits naming a symlink and edits
+ * naming its target belong to one file, read, matched and written once.
  */
-function groupEditsByPath(
+async function groupEditsByPath(
   edits: EditItem[],
   cwd: string,
-): Map<string, IndexedEdit[]> {
+): Promise<Map<string, IndexedEdit[]>> {
   const groups = new Map<string, IndexedEdit[]>();
   for (let i = 0; i < edits.length; i++) {
     const edit = edits[i]!;
-    const abs = toAbsolute(edit.path, cwd);
+    const abs = await canonicalPath(resolveEditPath(cwd, edit.path));
     const bucket = groups.get(abs);
     if (bucket) {
       bucket.push({ index: i, edit });
@@ -260,33 +320,6 @@ function groupEditsByPath(
     }
   }
   return groups;
-}
-
-/**
- * Sort same-file edits by the position of their `oldText` inside the
- * original content. Edits whose oldText can't be located slide to the end
- * and surface the error through the regular apply loop.
- */
-function sortGroupByPosition(
-  group: IndexedEdit[],
-  originalContent: string,
-  profile: MatchProfile,
-): void {
-  if (group.length < 2) return;
-  const positions = new Map<IndexedEdit, number>();
-  for (const entry of group) {
-    const match = findActualString(
-      originalContent,
-      entry.edit.oldText,
-      0,
-      profile,
-    );
-    positions.set(
-      entry,
-      match === undefined ? Number.MAX_SAFE_INTEGER : match.pos,
-    );
-  }
-  group.sort((a, b) => positions.get(a)! - positions.get(b)!);
 }
 
 // ---------------------------------------------------------------------------
@@ -313,19 +346,18 @@ interface ApplyOptions {
 }
 
 /**
- * Apply a list of classic edits sequentially through a Workspace.
+ * Apply a list of classic edits through a Workspace.
  *
- * Within each file the applier advances a `searchOffset` cursor after every
- * replacement so duplicate oldText snippets are disambiguated positionally.
- * Same-file edits are reordered by the position of their oldText in the
- * original content so the cursor always moves forward.
+ * Within each file every edit is matched against the original content, and
+ * duplicate oldText snippets are disambiguated positionally: the first edit
+ * for a text takes its first occurrence, the second edit the second one.
  *
  * When `rollbackOnError` is set, any file already written in this batch is
  * restored to its pre-edit snapshot if a later file fails — producing an
  * atomic multi-file edit on the real filesystem.
  */
 export async function applyClassicEdits(
-  edits: EditItem[],
+  requestedEdits: EditItem[],
   workspace: Workspace,
   cwd: string,
   signal?: AbortSignal,
@@ -338,7 +370,16 @@ export async function applyClassicEdits(
     onFileChange,
   } = options;
 
-  const fileGroups = groupEditsByPath(edits, cwd);
+  // Files are matched and written as LF text; the Workspace restores CRLF on
+  // write. CRLF in the model's own text has to go too, or newText would reach
+  // a CRLF file as "\r\r\n".
+  const edits = requestedEdits.map((edit) => ({
+    ...edit,
+    oldText: normalizeToLf(edit.oldText),
+    newText: normalizeToLf(edit.newText),
+  }));
+
+  const fileGroups = await groupEditsByPath(edits, cwd);
   const results: EditResult[] = new Array(edits.length);
 
   // Fail fast on any unwritable target so we don't partially mutate the FS.
@@ -371,29 +412,23 @@ export async function applyClassicEdits(
         cached.edits.size === group.length;
 
       let updatedContent: string;
-      try {
-        if (reusable) {
-          // Revalidate the current file after acquiring the mutation locks. If
-          // an external writer changed it, fall back to the full matching pass.
-          updatedContent = cached!.updatedContent;
-          for (const { index } of group)
-            results[index] = { ...cached!.edits.get(index)!.result };
-        } else {
-          const profile = matchProfile(originalContent);
-          sortGroupByPosition(group, originalContent, profile);
-          updatedContent = applyGroupToContent(
-            group,
-            originalContent,
-            results,
-            edits.length,
-            signal,
-            continueOnError,
-            profile,
-          );
-        }
-      } catch (err) {
-        if (continueOnError) continue;
-        throw err;
+      if (reusable) {
+        // Revalidate the current file after acquiring the mutation locks. If
+        // an external writer changed it, fall back to the full matching pass.
+        updatedContent = cached!.updatedContent;
+        for (const { index } of group)
+          results[index] = { ...cached!.edits.get(index)!.result };
+      } else {
+        // With `continueOnError` a failed edit is recorded, not thrown: what
+        // does throw here is an abort, which must reach the rollback below.
+        updatedContent = applyGroupToContent(
+          group,
+          originalContent,
+          results,
+          edits.length,
+          signal,
+          continueOnError,
+        );
       }
 
       options.onPrepared?.(absPath, {
@@ -450,8 +485,8 @@ export async function applyClassicEdits(
 /**
  * Apply every edit in a same-file group against `originalContent`, writing
  * per-edit outcomes into the shared `results` slot array. Returns the final
- * mutated content for the file, or throws with a formatted error if a hunk
- * can't be located.
+ * mutated content for the file, or throws with a formatted error if an edit
+ * can't be applied.
  */
 function applyGroupToContent(
   group: IndexedEdit[],
@@ -460,71 +495,90 @@ function applyGroupToContent(
   totalEdits: number,
   signal: AbortSignal | undefined,
   continueOnError = false,
-  profile: MatchProfile = matchProfile(originalContent),
 ): string {
-  let content = originalContent;
-  let searchOffset = 0;
+  const matcher = createMatcher(originalContent);
+
+  // How many edits of this group target each oldText.
+  const wanted = new Map<string, number>();
+  for (const { edit } of group)
+    wanted.set(edit.oldText, (wanted.get(edit.oldText) ?? 0) + 1);
+
+  // Per oldText: its occurrences in the original content, how many of them
+  // earlier edits already took, and whether there are too many to choose from.
+  const targets = new Map<
+    string,
+    { matches: Match[]; taken: number; occurrences: number; ambiguous: boolean }
+  >();
 
   // Track which oldText→newText pairs already landed in this file so we
   // can skip a redundant duplicate gracefully instead of failing the batch.
-  const remaining = new Map<string, number>();
-  for (const { edit } of group)
-    remaining.set(edit.oldText, (remaining.get(edit.oldText) ?? 0) + 1);
   const appliedPairs = new Set<string>();
   const pairKey = (edit: EditItem) => `${edit.oldText}\0${edit.newText}`;
 
-  for (let gi = 0; gi < group.length; gi++) {
-    const { index, edit } = group[gi]!;
-    const demand = remaining.get(edit.oldText)!;
-    remaining.set(edit.oldText, demand - 1);
+  const planned: { entry: IndexedEdit; match: Match }[] = [];
+
+  // Record a failed edit; unless failures are tolerated, give up on the group.
+  const fail = (entry: IndexedEdit, message: string): void => {
+    results[entry.index] = { path: entry.edit.path, success: false, message };
+    if (continueOnError) return;
+    markRemainingSkipped(group, entry.index, results);
+    throw new Error(formatResults(results.filter(Boolean), totalEdits));
+  };
+
+  for (const entry of group) {
+    const { index, edit } = entry;
     throwIfAborted(signal);
 
     // Reject empty oldText outright — the built-in edit tool refuses it, and
     // an empty match would splice newText at the file start (indexOf("") === 0).
     if (edit.oldText === "") {
-      results[index] = {
-        path: edit.path,
-        success: false,
-        message: `oldText must not be empty in ${edit.path}.`,
+      fail(entry, `oldText must not be empty in ${edit.path}.`);
+      continue;
+    }
+
+    // As the built-in does: reporting "Edited" for a replacement that changes
+    // nothing would hide that the model's view of the file is off.
+    if (edit.oldText === edit.newText) {
+      fail(
+        entry,
+        `No changes made to ${edit.path}: oldText and newText are identical.`,
+      );
+      continue;
+    }
+
+    let target = targets.get(edit.oldText);
+    if (!target) {
+      // Enforce the built-in's uniqueness contract. A single replacement whose
+      // oldText matches more than once is ambiguous and must error instead of
+      // silently editing the first hit. Positional multi-edits are still
+      // allowed: when several edits in this group target the same oldText,
+      // each takes one occurrence in file order, so an ambiguity only exists
+      // when the text occurs more often than there are edits for it.
+      //
+      // Occurrences are those of the original content: one that lies inside a
+      // region another edit replaces still makes the text ambiguous, and must
+      // not let the edit land on a later one.
+      const edits = wanted.get(edit.oldText)!;
+      // One more than needed is enough to establish the ambiguity.
+      const { matches, occurrences } = matcher.find(edit.oldText, edits + 1);
+      target = {
+        matches,
+        taken: 0,
+        occurrences,
+        ambiguous: occurrences > 1 && occurrences > edits,
       };
-      if (continueOnError) continue;
-      markRemainingSkipped(group, index, results);
-      throw new Error(formatResults(results.filter(Boolean), totalEdits));
+      targets.set(edit.oldText, target);
     }
 
-    // Enforce the built-in's uniqueness contract. A single replacement whose
-    // oldText matches more than once is ambiguous and must error instead of
-    // silently editing the first hit. Positional multi-edits are still allowed:
-    // when several edits in this group target the same oldText, each consumes
-    // one occurrence in file order, so an ambiguity only exists when the number
-    // of remaining matches exceeds the number of remaining edits for that text.
-    const occurrences = countOccurrences(
-      content,
-      edit.oldText,
-      searchOffset,
-      demand + 1,
-      profile,
-    );
-    if (occurrences > 1) {
-      if (occurrences > demand) {
-        results[index] = {
-          path: edit.path,
-          success: false,
-          message: `Found ${occurrences} occurrences of the text in ${edit.path}. The text must be unique. Please provide more context to make it unique. (Counting stops once ambiguity is established.)`,
-        };
-        if (continueOnError) continue;
-        markRemainingSkipped(group, index, results);
-        throw new Error(formatResults(results.filter(Boolean), totalEdits));
-      }
+    if (target.ambiguous) {
+      fail(
+        entry,
+        `Found ${target.occurrences} occurrences of the text in ${edit.path}. The text must be unique. Please provide more context to make it unique. (Counting stops once ambiguity is established.)`,
+      );
+      continue;
     }
 
-    const match = findActualString(
-      content,
-      edit.oldText,
-      searchOffset,
-      profile,
-    );
-
+    const match = target.matches[target.taken];
     if (match === undefined) {
       if (appliedPairs.has(pairKey(edit))) {
         results[index] = {
@@ -534,32 +588,59 @@ function applyGroupToContent(
         };
         continue;
       }
-
-      results[index] = {
-        path: edit.path,
-        success: false,
-        message: `Could not find the exact text in ${edit.path}. The old text must match exactly including all whitespace and newlines.`,
-      };
-
-      if (continueOnError) continue;
-
-      markRemainingSkipped(group, index, results);
-      throw new Error(formatResults(results.filter(Boolean), totalEdits));
+      fail(
+        entry,
+        `Could not find the exact text in ${edit.path}. The old text must match exactly including all whitespace and newlines.`,
+      );
+      continue;
     }
 
-    const { pos, actualOldText } = match;
-    content =
-      content.slice(0, pos) +
-      edit.newText +
-      content.slice(pos + actualOldText.length);
-    searchOffset = pos + edit.newText.length;
+    target.taken++;
     appliedPairs.add(pairKey(edit));
-
+    planned.push({ entry, match });
     results[index] = {
       path: edit.path,
       success: true,
       message: `Edited ${edit.path}.`,
     };
+  }
+
+  // Edits must target disjoint regions: applying one would invalidate what
+  // the other matched.
+  planned.sort((a, b) => a.match.pos - b.match.pos);
+  const applied: typeof planned = [];
+  for (const candidate of planned) {
+    const previous = applied[applied.length - 1];
+    if (previous && candidate.match.pos < previous.match.end) {
+      fail(
+        candidate.entry,
+        `Edit overlaps another edit in ${candidate.entry.edit.path}. Merge them into one edit or target disjoint regions.`,
+      );
+      continue;
+    }
+    applied.push(candidate);
+  }
+
+  let content = "";
+  let cursor = 0;
+  for (const { entry, match } of applied) {
+    content +=
+      originalContent.slice(cursor, match.pos) +
+      match.prefix +
+      entry.edit.newText +
+      match.suffix;
+    cursor = match.end;
+  }
+  content += originalContent.slice(cursor);
+
+  // A fuzzy match can also end up writing back exactly what was there.
+  if (applied.length > 0 && content === originalContent) {
+    for (const { entry } of applied) {
+      fail(
+        entry,
+        `No changes made to ${entry.edit.path}. The replacement produced identical content.`,
+      );
+    }
   }
 
   return content;

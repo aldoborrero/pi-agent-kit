@@ -22,7 +22,7 @@ import { boundedDiffText, compactChange } from "./preview.ts";
 import { once } from "./once.ts";
 import { executeNativeEdits } from "./native.ts";
 import { withMutationQueues } from "./mutation.ts";
-import { applyPatchOperations, parsePatch } from "./patch.ts";
+import { applyPatchOperations, parsePatch, patchPaths } from "./patch.ts";
 import { renderCall, renderResult } from "./render.ts";
 import type {
   EditItem,
@@ -205,7 +205,10 @@ export function planEdits(params: Params): Plan {
   return { mode: "classic", edits };
 }
 
-/** Pi 0.87 also tolerates models sending edits as JSON or as a single object. */
+/**
+ * Pi also tolerates models sending edits as JSON or as a single object, and
+ * a legacy oldText/newText pair next to edits[]: the pair is one more edit.
+ */
 export function prepareArguments(input: unknown): Params {
   if (!input || typeof input !== "object" || Array.isArray(input))
     return input as Params;
@@ -224,6 +227,15 @@ export function prepareArguments(input: unknown): Params {
       edits = [edit];
   }
   if (edits !== undefined) args.edits = edits;
+  if (
+    Array.isArray(edits) &&
+    typeof args.oldText === "string" &&
+    typeof args.newText === "string"
+  ) {
+    args.edits = [...edits, { oldText: args.oldText, newText: args.newText }];
+    delete args.oldText;
+    delete args.newText;
+  }
   return args as Params;
 }
 
@@ -260,7 +272,7 @@ export default function (pi: ExtensionAPI) {
         }
         const paths =
           plan.mode === "patch"
-            ? plan.ops.map((op) => op.path)
+            ? patchPaths(plan.ops)
             : plan.edits.map((edit) => edit.path);
         return withMutationQueues(paths, ctx.cwd, async () => {
           if (plan.mode === "patch") {

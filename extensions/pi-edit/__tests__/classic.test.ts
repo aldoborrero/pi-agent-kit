@@ -6,7 +6,16 @@
  */
 
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -476,11 +485,265 @@ describe("applyClassicEdits — uniqueness guard (built-in contract)", () => {
     });
   });
 
+  test("an occurrence inside an earlier edit's region still makes the text ambiguous", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "overlap.ts");
+      const original = "if (a) { return x; }\nmiddle();\nreturn x;\n";
+      await writeFile(file, original);
+
+      // "return x;" occurs twice in the file. The first edit replaces the
+      // region holding the first occurrence; the second must not quietly land
+      // on the other one.
+      const edits: EditItem[] = [
+        {
+          path: "overlap.ts",
+          oldText: "if (a) { return x; }",
+          newText: "if (a) { return y; }",
+        },
+        { path: "overlap.ts", oldText: "return x;", newText: "return z;" },
+      ];
+      await assert.rejects(
+        () =>
+          applyClassicEdits(edits, makeWorkspace(), dir, undefined, {
+            rollbackOnError: true,
+          }),
+        /Found 2 occurrences of the text.*must be unique/s,
+      );
+      assert.equal(await readFile(file, "utf-8"), original);
+    });
+  });
+
   test("countOccurrences counts non-overlapping matches", () => {
     assert.equal(countOccurrences("foo foo foo", "foo"), 3);
     assert.equal(countOccurrences("foo bar", "foo"), 1);
     assert.equal(countOccurrences("nothing", "foo"), 0);
     assert.equal(countOccurrences("foo foo", ""), 0);
+  });
+});
+
+describe("applyClassicEdits — edits are planned against the original content", () => {
+  /** Write `content`, apply `edits` to it in one batch, return the result. */
+  async function applyTo(
+    dir: string,
+    content: string,
+    ...edits: [oldText: string, newText: string][]
+  ): Promise<string> {
+    const file = join(dir, "f.txt");
+    await writeFile(file, content);
+    await applyClassicEdits(
+      edits.map(([oldText, newText]) => ({ path: "f.txt", oldText, newText })),
+      makeWorkspace(),
+      dir,
+      undefined,
+      { rollbackOnError: true },
+    );
+    return readFile(file, "utf-8");
+  }
+
+  test("duplicates take their occurrences in file order around other edits", async () => {
+    await withTmp(async (dir) => {
+      assert.equal(
+        await applyTo(dir, "A\nB\nA\n", ["A", "x"], ["A", "y"], ["B", "z"]),
+        "x\nz\ny\n",
+      );
+    });
+  });
+
+  test("overlapping edits are rejected", async () => {
+    await withTmp(async (dir) => {
+      await assert.rejects(
+        () =>
+          applyTo(
+            dir,
+            "one two three\n",
+            ["one two", "1 2"],
+            ["two three", "2 3"],
+          ),
+        /overlaps another edit.*Merge them/s,
+      );
+      assert.equal(
+        await readFile(join(dir, "f.txt"), "utf-8"),
+        "one two three\n",
+      );
+    });
+  });
+
+  test("an edit that changes nothing is an error, not 'Edited'", async () => {
+    await withTmp(async (dir) => {
+      await assert.rejects(
+        () => applyTo(dir, "same();\n", ["same();", "same();"]),
+        /No changes made to f\.txt: oldText and newText are identical/,
+      );
+      // Fuzzy match whose replacement is what the file already says.
+      await assert.rejects(
+        () => applyTo(dir, "say “hi”\n", ['say "hi"', "say “hi”"]),
+        /No changes made to f\.txt\. The replacement produced identical content/,
+      );
+    });
+  });
+
+  test("an abort while matching reaches the caller even when failures are tolerated", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "f.txt");
+      await writeFile(file, "a\nb\n");
+      // Not aborted when the file is picked up, aborted by the first edit.
+      let checks = 0;
+      const signal = {
+        get aborted() {
+          return checks++ > 0;
+        },
+      } as AbortSignal;
+      await assert.rejects(
+        () =>
+          applyClassicEdits(
+            [
+              { path: "f.txt", oldText: "a", newText: "A" },
+              { path: "f.txt", oldText: "b", newText: "B" },
+            ],
+            makeWorkspace(),
+            dir,
+            signal,
+            { continueOnError: true, rollbackOnError: true },
+          ),
+        /aborted/,
+      );
+      assert.equal(await readFile(file, "utf-8"), "a\nb\n");
+    });
+  });
+});
+
+describe("applyClassicEdits — fuzzy matching maps back to the file's own text", () => {
+  async function edit(
+    dir: string,
+    content: string,
+    oldText: string,
+    newText: string,
+  ): Promise<string> {
+    const file = join(dir, "f.txt");
+    await writeFile(file, content);
+    await applyClassicEdits(
+      [{ path: "f.txt", oldText, newText }],
+      makeWorkspace(),
+      dir,
+    );
+    return readFile(file, "utf-8");
+  }
+
+  test("oldText ending in a newline matches lines with trailing whitespace", async () => {
+    await withTmp(async (dir) => {
+      assert.equal(
+        await edit(dir, "foo();   \nbar();\nbaz();\n", "foo();\nbar();\n", "X\n"),
+        "X\nbaz();\n",
+      );
+    });
+  });
+
+  test("a partial line matches through a length-changing normalization", async () => {
+    await withTmp(async (dir) => {
+      assert.equal(
+        await edit(dir, 'const s = "wait…";\nnext\n', 's = "wait..."', 's = "go"'),
+        'const s = "go";\nnext\n',
+      );
+    });
+  });
+
+  test("several tolerances combine in one match", async () => {
+    await withTmp(async (dir) => {
+      assert.equal(
+        await edit(dir, "say ‘hi’   \nnext\n", "say 'hi'\nnext", "done"),
+        "done\n",
+      );
+    });
+  });
+
+  test("the rest of a touched line keeps its own text", async () => {
+    await withTmp(async (dir) => {
+      assert.equal(
+        await edit(dir, "x = foo —  bar   \nnext\n", "foo -", "FOO -"),
+        "x = FOO -  bar   \nnext\n",
+      );
+    });
+  });
+
+  test("whitespace at the end of a mid-line oldText is part of the match", async () => {
+    await withTmp(async (dir) => {
+      assert.equal(await edit(dir, "\ta—b c \n", "\ta-b ", "NEW"), "NEWc \n");
+    });
+  });
+});
+
+describe("applyClassicEdits — paths as Pi's built-in tools read them", () => {
+  test("drops the @ of a mentioned file, keeps it in a real name", async () => {
+    await withTmp(async (dir) => {
+      await writeFile(join(dir, "a.txt"), "a\n");
+      await mkdir(join(dir, "@types"));
+      await writeFile(join(dir, "@types", "x.d.ts"), "x\n");
+      await writeFile(join(dir, "types"), "decoy\n");
+
+      await applyClassicEdits(
+        [
+          { path: "@a.txt", oldText: "a", newText: "A" },
+          { path: "@types/x.d.ts", oldText: "x", newText: "X" },
+        ],
+        makeWorkspace(),
+        dir,
+      );
+
+      assert.equal(await readFile(join(dir, "a.txt"), "utf-8"), "A\n");
+      assert.equal(await readFile(join(dir, "@types", "x.d.ts"), "utf-8"), "X\n");
+    });
+  });
+});
+
+describe("applyClassicEdits — a symlink and its target are one file", () => {
+  async function linked(dir: string, content: string) {
+    await writeFile(join(dir, "real.txt"), content);
+    await symlink(join(dir, "real.txt"), join(dir, "link.txt"));
+  }
+
+  test("edits through both names are matched together and written once", async () => {
+    await withTmp(async (dir) => {
+      await linked(dir, "one\ntwo\n");
+      const writes: string[] = [];
+      const workspace = makeWorkspace();
+      const originalWrite = workspace.writeText;
+      workspace.writeText = async (path, content) => {
+        writes.push(path);
+        await originalWrite(path, content);
+      };
+
+      await applyClassicEdits(
+        [
+          { path: "real.txt", oldText: "one", newText: "1" },
+          { path: "link.txt", oldText: "two", newText: "2" },
+        ],
+        workspace,
+        dir,
+      );
+
+      assert.equal(await readFile(join(dir, "real.txt"), "utf-8"), "1\n2\n");
+      assert.equal(writes.length, 1);
+      assert.ok((await lstat(join(dir, "link.txt"))).isSymbolicLink());
+    });
+  });
+
+  test("the uniqueness check sees the edits made through the other name", async () => {
+    await withTmp(async (dir) => {
+      await linked(dir, "dup\ndup\n");
+      // Two edits for two occurrences: unambiguous only as one file.
+      await applyClassicEdits(
+        [
+          { path: "real.txt", oldText: "dup", newText: "first" },
+          { path: "link.txt", oldText: "dup", newText: "second" },
+        ],
+        makeWorkspace(),
+        dir,
+      );
+      assert.equal(
+        await readFile(join(dir, "real.txt"), "utf-8"),
+        "first\nsecond\n",
+      );
+    });
   });
 });
 
@@ -528,6 +791,34 @@ describe("applyClassicEdits — CRLF encoding round-trip", () => {
       const raw = await readFile(file, "utf-8");
       assert.ok(raw.includes("\r\n"), "file on disk must still contain CRLF");
       assert.equal(raw, "HI WORLD\r\nFOO BAR\r\n");
+    });
+  });
+
+  test("CRLF in oldText and newText does not double the carriage returns", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "crlf.txt");
+      await writeFile(file, "a\r\nb\r\nc\r\n");
+
+      const edits: EditItem[] = [
+        { path: "crlf.txt", oldText: "a\r\nb", newText: "A\r\nB1\r\nB2" },
+      ];
+      await applyClassicEdits(edits, makeWorkspace(), dir);
+
+      assert.equal(await readFile(file, "utf-8"), "A\r\nB1\r\nB2\r\nc\r\n");
+    });
+  });
+
+  test("CRLF in newText is written as LF into an LF file", async () => {
+    await withTmp(async (dir) => {
+      const file = join(dir, "lf.txt");
+      await writeFile(file, "a\nb\n");
+
+      const edits: EditItem[] = [
+        { path: "lf.txt", oldText: "a", newText: "A1\r\nA2" },
+      ];
+      await applyClassicEdits(edits, makeWorkspace(), dir);
+
+      assert.equal(await readFile(file, "utf-8"), "A1\nA2\nb\n");
     });
   });
 });

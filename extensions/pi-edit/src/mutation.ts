@@ -1,6 +1,6 @@
-import { realpath } from "node:fs/promises";
-import { resolve } from "node:path";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+
+import { canonicalPath, resolveEditPath } from "./paths.ts";
 
 /** Hold Pi's locks across preflight, application and rollback of a legacy batch. */
 export async function withMutationQueues<T>(
@@ -8,23 +8,12 @@ export async function withMutationQueues<T>(
   cwd: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const absolutePaths = [...new Set(paths.map((path) => resolve(cwd, path)))];
-  const keys = await Promise.all(
-    absolutePaths.map(async (absolute) => {
-      try {
-        return await realpath(absolute);
-      } catch (error) {
-        if (
-          error &&
-          typeof error === "object" &&
-          "code" in error &&
-          (error.code === "ENOENT" || error.code === "ENOTDIR")
-        )
-          return absolute;
-        throw error;
-      }
-    }),
-  );
+  // Resolved exactly as the engines resolve them, so the lock is taken on the
+  // file that is actually written.
+  const absolutePaths = [
+    ...new Set(paths.map((path) => resolveEditPath(cwd, path))),
+  ];
+  const keys = await Promise.all(absolutePaths.map(canonicalPath));
   // Canonical deduplication avoids locking a file twice through a symlink.
   // Stable ordering avoids deadlocks between batches listing paths in reverse.
   const sorted = [...new Set(keys)].sort();

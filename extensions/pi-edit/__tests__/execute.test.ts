@@ -595,7 +595,7 @@ describe("execute — bounded result persistence", () => {
     });
   });
 
-  test("a budget-limited legacy preview does not undo a successful edit", async () => {
+  test("a rewrite beyond the diff budget is applied and persists a capped preview", async () => {
     await withTmp(async (dir) => {
       const before =
         Array.from({ length: 6000 }, (_, i) => `old_${i}`).join("\n") + "\n";
@@ -610,8 +610,14 @@ describe("execute — bounded result persistence", () => {
         { cwd: dir },
       )) as ResultWithFileChanges;
       assert.equal(await readFile(join(dir, "f"), "utf8"), after);
-      assert.match(result.details.fileChanges[0]!.preview.omitted!, /budget/);
-      assert.ok(JSON.stringify(result).length < 2048);
+      const { preview } = result.details.fileChanges[0]!;
+      assert.equal(preview.omitted, undefined);
+      assert.deepEqual([preview.removed, preview.added], [6000, 6000]);
+      assert.match(preview.truncated!, /more diff lines not shown/);
+      // 12,000 changed lines, 141 KiB of file content: the result keeps a head
+      // of each side, not the files.
+      assert.ok(preview.lines.length <= 1024);
+      assert.ok(JSON.stringify(result).length < 96 * 1024);
     });
   });
 });

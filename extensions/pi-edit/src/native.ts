@@ -3,7 +3,6 @@ import { access, readFile, writeFile } from "node:fs/promises";
 import {
   createEditToolDefinition,
   type ExtensionAPI,
-  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { lang } from "@xynogen/pix-pretty/lang";
 
@@ -14,13 +13,19 @@ import {
 } from "./preview.ts";
 import type { FileDiff } from "./types.ts";
 
+// Derived from the native tool so it tracks Pi's tool-context type across
+// versions (ExtensionContext up to 0.87, ExtensionToolContext from 0.99).
+type NativeEditContext = Parameters<
+  ReturnType<typeof createEditToolDefinition>["execute"]
+>[4];
+
 /** Delegate matching/locking to Pi; persist hunks, never full-file snapshots. */
 export async function executeNativeEdits(
   pi: ExtensionAPI,
   toolCallId: string,
   params: { path: string; edits: { oldText: string; newText: string }[] },
   signal: AbortSignal | undefined,
-  ctx: ExtensionContext,
+  ctx: NativeEditContext,
 ) {
   let changedPath: string | undefined;
   const tool = createEditToolDefinition(ctx.cwd, {

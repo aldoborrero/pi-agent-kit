@@ -118,6 +118,8 @@ const previews = new WeakMap<
     view: FileDiff;
   }
 >();
+const DEFERRED = "Historical diff exceeded the render computation budget";
+
 function viewFor(change: FileChange | FileDiff, deadline: number): FileDiff {
   const raw = change as FileChange;
   const cached = previews.get(change);
@@ -130,19 +132,13 @@ function viewFor(change: FileChange | FileDiff, deadline: number): FileDiff {
     cached.view.language === change.language
   )
     return cached.view;
-  const view =
-    "format" in change && change.format === "hunks-v1"
-      ? { ...change }
-      : compactChange({
-          ...raw,
-          preview:
-            raw.preview ??
-            (Date.now() >= deadline
-              ? omittedPreview(
-                  "Historical diff exceeded the render computation budget",
-                )
-              : undefined),
-        });
+  const isCompact = "format" in change && change.format === "hunks-v1";
+  // Out of time for this render: show a placeholder but do not remember it,
+  // so a later render gets to compute the diff.
+  if (!isCompact && !raw.preview && Date.now() >= deadline) {
+    return compactChange({ ...raw, preview: omittedPreview(DEFERRED) });
+  }
+  const view = isCompact ? { ...change } : compactChange(raw);
   previews.set(change, {
     oldContent: raw.oldContent,
     newContent: raw.newContent,
@@ -218,6 +214,11 @@ export function renderResult(
   const views = fcs
     .slice(0, options.expanded ? 100 : 20)
     .map((fc) => viewFor(fc, deadline));
+  // Diffs left out for lack of time get their turn on the next render. Every
+  // render computes at least one before its deadline can pass, so this ends.
+  if (views.some((view) => view.preview.omitted === DEFERRED)) {
+    setTimeout(ctx.invalidate, 0);
+  }
   const previous = ctx.state._pieViews as FileDiff[] | undefined;
   if (
     !previous ||
@@ -269,11 +270,23 @@ export function renderResult(
               : 0),
           0,
         );
+      // Say so when the stored preview itself stops short of the change; while
+      // only part of it is visible, the renderer's own "more lines" note covers it.
+      const note =
+        fc.preview.truncated && limit >= fc.preview.lines.length
+          ? `\n  ${theme.fg("muted", `… ${fc.preview.truncated}`)}`
+          : "";
       if (work > wordWork) {
-        pending.push(Promise.resolve(renderPlain(fc.preview, limit, theme)));
+        pending.push(
+          Promise.resolve(renderPlain(fc.preview, limit, theme) + note),
+        );
       } else {
         wordWork -= work;
-        pending.push(renderSplit(fc.preview, fc.language, limit, dc));
+        pending.push(
+          renderSplit(fc.preview, fc.language, limit, dc).then(
+            (block) => block + note,
+          ),
+        );
       }
     }
     Promise.all(pending)

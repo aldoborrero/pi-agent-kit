@@ -45,5 +45,9 @@ export function generateDiffString(
       return `${marker}${String(num).padStart(width)} ${line.content}`;
     })
     .join("\n");
-  return { diff, firstChangedLine: previewFirstLine(preview), preview };
+  return {
+    diff: preview.truncated ? `${diff}\n… ${preview.truncated}.` : diff,
+    firstChangedLine: previewFirstLine(preview),
+    preview,
+  };
 }

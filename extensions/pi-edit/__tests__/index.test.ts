@@ -218,6 +218,23 @@ describe("prepareArguments — Pi 0.87 model compatibility", () => {
     }
   });
 
+  test("a legacy pair next to edits[] becomes one more edit", () => {
+    const input = {
+      path: "a.ts",
+      edits: [{ oldText: "p", newText: "q" }],
+      oldText: "x",
+      newText: "y",
+    };
+    assert.deepEqual(prepareArguments(input), {
+      path: "a.ts",
+      edits: [
+        { oldText: "p", newText: "q" },
+        { oldText: "x", newText: "y" },
+      ],
+    });
+    assert.equal(input.edits.length, 1, "does not mutate the raw call");
+  });
+
   test("keeps legacy and patch inputs unchanged", () => {
     for (const input of [
       { path: "a.ts", oldText: "a", newText: "b" },
