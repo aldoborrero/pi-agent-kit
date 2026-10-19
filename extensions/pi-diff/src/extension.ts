@@ -39,8 +39,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const trimmed = args.trim();
+			// tuicr's -r takes a revision/range, not a diff flag, so it can't
+			// render staged-only diffs. Route those to the delta/git path.
+			const isStaged = trimmed === "--staged" || trimmed === "--cached";
 
-			if (which("tuicr")) {
+			if (which("tuicr") && !isStaged) {
 				// tuicr: full interactive TUI
 				const tuicrArgs: string[] = [];
 				if (trimmed) tuicrArgs.push("-r", trimmed);

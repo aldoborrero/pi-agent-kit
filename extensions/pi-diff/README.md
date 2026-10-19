@@ -1,9 +1,18 @@
 # @aldoborrero/pi-diff
 
-Render diffs in the chat using structured formatting.
+Quick diff viewer via the `/diff` command.
+
+Shells out to `tuicr` (preferred), then `delta`, then plain `git diff`, showing the result in a fullscreen TUI. The first available tool in that chain is used.
 
 ## Usage
 
-The extension provides structured diff output using `git diff` and OS-level diff tools, rendered with syntax highlighting.
+```
+/diff              — show all uncommitted changes
+/diff --staged     — show only staged changes
+/diff --cached     — alias for --staged
+/diff <revisions>  — show changes for a commit range (e.g. HEAD~3..HEAD)
+```
 
-No commands — it hooks into tool result rendering automatically.
+Staged diffs (`--staged`/`--cached`) are rendered via `delta` or `git diff`, since `tuicr` only accepts a revision or range.
+
+The command requires interactive mode.
