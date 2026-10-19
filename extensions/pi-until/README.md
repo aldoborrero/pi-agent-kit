@@ -1,15 +1,15 @@
-# loop
+# until
 
-Provides a `/loop` command that keeps re-sending prompts until a breakout condition is met. Essential for TDD and iterative workflows.
+Provides an `/until` command that keeps re-sending prompts until a breakout condition is met. Essential for TDD and iterative workflows.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `/loop` | Interactive preset selector |
-| `/loop tests` | Loop until tests pass |
-| `/loop custom <condition>` | Loop until custom condition |
-| `/loop self` | Agent decides when done |
+| `/until` | Interactive preset selector |
+| `/until tests` | Loop until tests pass |
+| `/until custom <condition>` | Loop until custom condition |
+| `/until self` | Agent decides when done |
 
 ## Tools
 
@@ -26,9 +26,18 @@ Provides a `/loop` command that keeps re-sending prompts until a breakout condit
 ## Features
 
 - Status widget showing loop turn count and condition summary
-- Survives compaction (preserves loop state in compaction instructions)
+- Maximum iteration cap (default 25) to guard against runaway loops; the loop stops and notifies the user if it reaches the cap without success
+- Stops when a run ends with an error instead of retrying it up to the cap
+- Interrupting a run (Esc) asks whether to break out of the loop or resume it; without a UI the loop ends
+- Messages queued while the loop runs are handled before the next iteration
+- Survives compaction (state lives in session entries and every iteration restates the condition)
 - Survives session resume (persists state via custom entries)
-- Uses Haiku for summarizing breakout conditions in the status widget
+
+## Configuration
+
+| Environment variable | Default | Description |
+|----------------------|---------|-------------|
+| `PI_UNTIL_MAX_ITERATIONS` | `25` | Maximum number of loop iterations before the loop stops itself. |
 
 ## Attribution
 

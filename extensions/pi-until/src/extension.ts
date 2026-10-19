@@ -1,15 +1,14 @@
 /**
  * Loop Extension
  *
- * Provides a /loop command that starts a follow-up loop with a breakout condition.
- * The loop keeps sending a prompt on turn end until the agent calls the
- * signal_loop_success tool.
+ * Provides a /until command that starts a follow-up loop with a breakout condition.
+ * Each time a run is about to settle the loop appends its prompt and asks Pi for
+ * one more model request, until the agent calls the signal_loop_success tool, a
+ * run fails, or a maximum iteration cap is reached.
  */
 
 import { Type } from "@sinclair/typebox";
-import { complete, type Api, type Model, type UserMessage } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext, SessionSwitchEvent } from "@earendil-works/pi-coding-agent";
-import { compact } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "@aldoborrero/pi-common";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
@@ -34,15 +33,20 @@ const LOOP_PRESETS = [
 
 const LOOP_STATE_ENTRY = "loop-state";
 
-const HAIKU_MODEL_ID = "claude-haiku-4-5";
+const DEFAULT_MAX_ITERATIONS = 25;
 
-const SUMMARY_SYSTEM_PROMPT = `You summarize loop breakout conditions for a status widget.
-Return a concise phrase (max 6 words) that says when the loop should stop.
-Use plain text only, no quotes, no punctuation, no prefix.
-
-Form should be "breaks when ...", "loops until ...", "stops on ...", "runs until ...", or similar.
-Use the best form that makes sense for the loop condition.
-`;
+/**
+ * Maximum number of loop iterations before the loop stops itself.
+ * Overridable via the PI_UNTIL_MAX_ITERATIONS environment variable.
+ * Guards against runaway loops that never call signal_loop_success.
+ */
+function getMaxIterations(): number {
+	const raw = process.env.PI_UNTIL_MAX_ITERATIONS;
+	if (!raw) return DEFAULT_MAX_ITERATIONS;
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MAX_ITERATIONS;
+	return parsed;
+}
 
 function buildPrompt(mode: LoopMode, condition?: string): string {
 	switch (mode) {
@@ -74,79 +78,6 @@ function summarizeCondition(mode: LoopMode, condition?: string): string {
 		case "self":
 			return "done";
 	}
-}
-
-function getConditionText(mode: LoopMode, condition?: string): string {
-	switch (mode) {
-		case "tests":
-			return "tests pass";
-		case "custom":
-			return condition?.trim() || "custom condition";
-		case "self":
-			return "you are done";
-	}
-}
-
-async function selectSummaryModel(
-	ctx: ExtensionContext,
-): Promise<{ model: Model<Api>; apiKey: string } | null> {
-	if (!ctx.model) return null;
-
-	if (ctx.model.provider === "anthropic") {
-		const haikuModel = ctx.modelRegistry.find("anthropic", HAIKU_MODEL_ID);
-		if (haikuModel) {
-			const apiKey = await ctx.modelRegistry.getApiKey(haikuModel);
-			if (apiKey) {
-				return { model: haikuModel, apiKey };
-			}
-		}
-	}
-
-	const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
-	if (!apiKey) return null;
-	return { model: ctx.model, apiKey };
-}
-
-async function summarizeBreakoutCondition(
-	ctx: ExtensionContext,
-	mode: LoopMode,
-	condition?: string,
-): Promise<string> {
-	const fallback = summarizeCondition(mode, condition);
-	const selection = await selectSummaryModel(ctx);
-	if (!selection) return fallback;
-
-	const conditionText = getConditionText(mode, condition);
-	const userMessage: UserMessage = {
-		role: "user",
-		content: [{ type: "text", text: conditionText }],
-		timestamp: Date.now(),
-	};
-
-	const response = await complete(
-		selection.model,
-		{ systemPrompt: SUMMARY_SYSTEM_PROMPT, messages: [userMessage] },
-		{ apiKey: selection.apiKey },
-	);
-
-	if (response.stopReason === "aborted" || response.stopReason === "error") {
-		return fallback;
-	}
-
-	const summary = response.content
-		.filter((c): c is { type: "text"; text: string } => c.type === "text")
-		.map((c) => c.text)
-		.join(" ")
-		.replace(/\s+/g, " ")
-		.trim();
-
-	if (!summary) return fallback;
-	return summary.length > 60 ? `${summary.slice(0, 57)}...` : summary;
-}
-
-function getCompactionInstructions(mode: LoopMode, condition?: string): string {
-	const conditionText = getConditionText(mode, condition);
-	return `Loop active. Breakout condition: ${conditionText}. Preserve this loop state and breakout condition in the summary.`;
 }
 
 function updateStatus(ctx: ExtensionContext, state: LoopStateData): void {
@@ -202,6 +133,24 @@ export default function loopExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify("Loop ended", "info");
 	}
 
+	function stopLoop(ctx: ExtensionContext, reason: string): void {
+		clearLoopState(ctx);
+		ctx.ui.notify(`/until stopped: ${reason}`, "warning");
+	}
+
+	/** Count the next iteration, or stop the loop once the cap is reached. */
+	function advanceLoop(ctx: ExtensionContext): boolean {
+		const maxIterations = getMaxIterations();
+		if ((loopState.loopCount ?? 0) >= maxIterations) {
+			stopLoop(ctx, `reached ${maxIterations} iterations without success`);
+			return false;
+		}
+		loopState = { ...loopState, loopCount: (loopState.loopCount ?? 0) + 1 };
+		persistState(loopState);
+		updateStatus(ctx, loopState);
+		return true;
+	}
+
 	function wasLastAssistantAborted(messages: Array<{ role?: string; stopReason?: string }>): boolean {
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i];
@@ -212,19 +161,19 @@ export default function loopExtension(pi: ExtensionAPI): void {
 		return false;
 	}
 
+	/**
+	 * Start a run with the loop prompt. Used to kick the loop off and to resume
+	 * it after an interrupted run; while a run is settling the loop continues
+	 * through the agent_before_settle handler instead.
+	 */
 	function triggerLoopPrompt(ctx: ExtensionContext): void {
 		if (!loopState.active || !loopState.mode || !loopState.prompt) return;
 		if (ctx.hasPendingMessages()) return;
-
-		const prompt = loopState.prompt;
-		const loopCount = (loopState.loopCount ?? 0) + 1;
-		loopState = { ...loopState, loopCount };
-		persistState(loopState);
-		updateStatus(ctx, loopState);
+		if (!advanceLoop(ctx)) return;
 
 		pi.sendMessage({
 			customType: "loop",
-			content: prompt,
+			content: loopState.prompt,
 			display: true
 		}, {
 			deliverAs: "followUp",
@@ -363,7 +312,7 @@ export default function loopExtension(pi: ExtensionAPI): void {
 			let nextState = parseArgs(args);
 			if (!nextState) {
 				if (!ctx.hasUI) {
-					ctx.ui.notify("Usage: /loop tests | /loop custom <condition> | /loop self", "warning");
+					ctx.ui.notify("Usage: /until tests | /until custom <condition> | /until self", "warning");
 					return;
 				}
 				nextState = await showLoopSelector(ctx);
@@ -384,84 +333,73 @@ export default function loopExtension(pi: ExtensionAPI): void {
 				}
 			}
 
-			const summarizedState: LoopStateData = { ...nextState, summary: undefined, loopCount: 0 };
-			setLoopState(summarizedState, ctx);
+			const mode = nextState.mode!;
+			setLoopState(
+				{ ...nextState, summary: summarizeCondition(mode, nextState.condition), loopCount: 0 },
+				ctx,
+			);
 			ctx.ui.notify("Loop active", "info");
 			triggerLoopPrompt(ctx);
-
-			const mode = nextState.mode!;
-			const condition = nextState.condition;
-			void (async () => {
-				const summary = await summarizeBreakoutCondition(ctx, mode, condition);
-				if (!loopState.active || loopState.mode !== mode || loopState.condition !== condition) return;
-				loopState = { ...loopState, summary };
-				persistState(loopState);
-				updateStatus(ctx, loopState);
-			})();
 		},
 	});
 
-	pi.on("agent_end", async (event, ctx) => {
+	// Pi runs this boundary after retries, compaction and queued messages, so a
+	// continuation requested here cannot race with them.
+	pi.on("agent_before_settle", async (event, ctx) => {
+		if (!loopState.active || !loopState.prompt) return;
+		// An interrupted run is resolved with the user once the run has settled.
+		if (event.outcome === "aborted") return;
+		// A run that failed would fail again; do not spend the remaining iterations on it.
+		if (event.outcome === "error") {
+			stopLoop(ctx, "the last run ended with an error");
+			return;
+		}
+		// Messages the user queued run first; this boundary fires again after them.
+		if (event.context.pendingMessages.length > 0) return;
+		if (!advanceLoop(ctx)) return;
+
+		return {
+			entries: [
+				...event.entries,
+				{ type: "custom_message", customType: "loop", content: loopState.prompt, display: true },
+			],
+			continue: true,
+		};
+	});
+
+	let interrupted = false;
+
+	pi.on("agent_end", async (event) => {
+		interrupted = loopState.active && wasLastAssistantAborted(event.messages);
+	});
+
+	// Pi skips the settle boundary for an interrupted run, so the loop is
+	// resumed or ended here, where starting a new run is allowed again.
+	pi.on("agent_settled", async (_event, ctx) => {
+		if (!interrupted) return;
+		interrupted = false;
 		if (!loopState.active) return;
 
-		if (ctx.hasUI && wasLastAssistantAborted(event.messages)) {
-			const confirm = await ctx.ui.confirm(
-				"Break active loop?",
-				"Operation aborted. Break out of the loop?",
-			);
-			if (confirm) {
-				breakLoop(ctx);
-				return;
-			}
+		// Without a UI nobody can answer, and an abort is the only stop signal.
+		const breakOut = !ctx.hasUI || (await ctx.ui.confirm(
+			"Break active loop?",
+			"Operation aborted. Break out of the loop?",
+		));
+		if (breakOut) {
+			breakLoop(ctx);
+			return;
 		}
-
 		triggerLoopPrompt(ctx);
 	});
 
-	pi.on("session_before_compact", async (event, ctx) => {
-		if (!loopState.active || !loopState.mode || !ctx.model) return;
-		const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);
-		if (!apiKey) return;
-
-		const instructionParts = [event.customInstructions, getCompactionInstructions(loopState.mode, loopState.condition)]
-			.filter(Boolean)
-			.join("\n\n");
-
-		try {
-			const compaction = await compact(event.preparation, ctx.model, apiKey, instructionParts, event.signal);
-			return { compaction };
-		} catch (error) {
-			if (ctx.hasUI) {
-				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`Loop compaction failed: ${message}`, "warning");
-			}
-			return;
-		}
-	});
-
-	async function restoreLoopState(ctx: ExtensionContext): Promise<void> {
-		loopState = await loadState(ctx);
-		updateStatus(ctx, loopState);
-
-		if (loopState.active && loopState.mode && !loopState.summary) {
-			const mode = loopState.mode;
-			const condition = loopState.condition;
-			void (async () => {
-				const summary = await summarizeBreakoutCondition(ctx, mode, condition);
-				if (!loopState.active || loopState.mode !== mode || loopState.condition !== condition) return;
-				loopState = { ...loopState, summary };
-				persistState(loopState);
-				updateStatus(ctx, loopState);
-			})();
-		}
-	}
-
+	// Loop state lives in session entries and every iteration restates the
+	// breakout condition, so the loop needs nothing from the compaction summary.
 	pi.on("session_start", async (_event, ctx) => {
-		await restoreLoopState(ctx);
-	});
-
-	pi.on("session_switch", async (_event: SessionSwitchEvent, ctx) => {
-		await restoreLoopState(ctx);
+		loopState = await loadState(ctx);
+		if (loopState.active && loopState.mode && !loopState.summary) {
+			loopState = { ...loopState, summary: summarizeCondition(loopState.mode, loopState.condition) };
+		}
+		updateStatus(ctx, loopState);
 	});
 
   });
