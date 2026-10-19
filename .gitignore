@@ -8,6 +8,15 @@ node_modules
 bun.lockb
 .bun
 
+# python
+__pycache__/
+*.py[cod]
+
+# pi runtime state (per-machine; not source)
+.pi/loop-tasks.lock
+.pi/loop-tasks.json
+.pi/workflows/
+
 # secrets & certs
 *.pem
 *.key
