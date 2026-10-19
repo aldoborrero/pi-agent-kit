@@ -29,29 +29,39 @@
     "codex-plugin-cc": "github:openai/codex-plugin-cc",
     "gray-matter": "^4.0.3",
     "@aldoborrero/pi-common": "*",
+    "@bacnh85/pi-subagent": "^0.23.2",
+    "@quintinshaw/pi-dynamic-workflows": "^3.13.1",
     "pi-lsp-extension": "github:samfoy/pi-lsp-extension",
     "pi-mcp-adapter": "github:nicobailon/pi-mcp-adapter"
   },
+  "devDependencies": {
+    "@earendil-works/pi-agent-core": "^0.99.1",
+    "@earendil-works/pi-ai": "^0.99.1",
+    "@earendil-works/pi-coding-agent": "^0.99.1",
+    "@earendil-works/pi-tui": "^0.99.1"
+  },
   "peerDependencies": {
-    "@earendil-works/pi-agent-core": "^0.87.1",
-    "@earendil-works/pi-ai": "^0.87.1",
-    "@earendil-works/pi-coding-agent": "^0.87.1",
-    "@earendil-works/pi-tui": "^0.87.1",
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "@sinclair/typebox": "latest"
   },
   "pi": {
-    "agents": [
-      "agents"
-    ],
     "prompts": [
       "prompts"
+    ],
+    "skills": [
+      "node_modules/@quintinshaw/pi-dynamic-workflows/skills"
     ],
     "themes": [
       "extensions/pi-themes/themes",
       "node_modules/@xynogen/pix-themes/themes"
     ],
     "extensions": [
-      "extensions/pi-agent-kit"
+      "extensions/pi-agent-kit",
+      "node_modules/@bacnh85/pi-subagent/extensions/index.ts",
+      "node_modules/@quintinshaw/pi-dynamic-workflows/extensions/workflow.ts"
     ]
   }
 }

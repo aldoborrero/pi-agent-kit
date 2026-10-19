@@ -21,7 +21,7 @@ are not automatically activated by Pi):
 | Web search and extraction | `pi-web-access@0.35.0` | `dist/index.js` |
 | Notifications | `@bacnh85/pi-notify@0.1.8` | `extensions/index.js` |
 
-They replace, rather than accompany, the local questionnaire/web/notify factories.
-Do not also load them as standalone Pi packages. The question tool is now
+They replace the former local questionnaire/web/notify factories, whose sources were removed
+from the repository. Do not also load the replacements as standalone Pi packages. The question tool is now
 `ask_user_question`; fetching uses `fetch_content` instead of `web_fetch`.
 On Linux install `libnotify` (`notify-send`) for desktop delivery.

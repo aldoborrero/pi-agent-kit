@@ -9,7 +9,7 @@ A collection of `pi-*` extensions for [Pi Coding Agent](https://github.com/badlo
 pi install npm:@aldoborrero/pi-agent-kit
 
 # From local clone
-pi install ./pi-agent-kit
+pi install ./agent-kit
 ```
 
 ## Extensions
@@ -30,9 +30,9 @@ All extensions follow the same structure:
 | Extension | Description |
 |-----------|-------------|
 | [`pi-ast-grep`](extensions/pi-ast-grep) | Structural code search using AST patterns |
+| [`pi-edit`](extensions/pi-edit) | Enhanced `edit` tool — single, batch (`multi`), and Codex-style patch modes |
 | [`pi-diff`](extensions/pi-diff) | Structured diff rendering |
 | [`pi-tuicr`](extensions/pi-tuicr) | Interactive code review launcher |
-| [`pi-github-search`](extensions/pi-github-search) | Search code, issues, and PRs on GitHub |
 
 ### Safety
 
@@ -40,47 +40,48 @@ All extensions follow the same structure:
 |-----------|-------------|
 | [`pi-bitwarden`](extensions/pi-bitwarden) | Secure vault access via rbw — `bw_get`/`bw_list` with password masking |
 | [`pi-sandbox`](extensions/pi-sandbox) | OS-level sandboxing for bash commands |
-| [`pi-git-checkpoint`](extensions/pi-git-checkpoint) | Auto git stash at each turn for safe rollback |
+| [`pi-rewind-hook`](https://github.com/nicobailon/pi-rewind-hook) | External — file-state rewind points, restorable from `/fork` and `/tree` |
 
 ### Session & Context
 
 | Extension | Description |
 |-----------|-------------|
 | [`pi-context`](extensions/pi-context) | `/context` TUI — token usage, extensions, skills, session cost |
-| [`pi-exit`](extensions/pi-exit) | `/exit` command |
+| [`pi-alias`](extensions/pi-alias) | `/exit` (alias for `/quit`) and `/clear` (alias for `/new`) commands |
 | [`pi-suggest`](extensions/pi-suggest) | Next-prompt prediction — ghost text suggestions after each turn |
 
 ### Workflow & Automation
 
 | Extension | Description |
 |-----------|-------------|
-| [`pi-subagent`](extensions/pi-subagent) | Delegate tasks to specialized subagents (single, parallel, chain) |
-| [`pi-workflows`](extensions/pi-workflows) | Deterministic JS workflow orchestration engine |
-| [`pi-loop`](extensions/pi-loop) | Periodic polling and monitoring on a schedule |
-| [`pi-until`](extensions/pi-until) | Repeat until condition met |
-| [`pi-questionnaire`](extensions/pi-questionnaire) | Structured multi-question UI with options |
+| [`@bacnh85/pi-subagent`](https://www.npmjs.com/package/@bacnh85/pi-subagent) | External — delegate tasks to specialized subagents (single, parallel, chain) |
+| [`pi-loop`](extensions/pi-loop) | Schedule, list, or delete recurring prompts on a timer |
+| [`pi-until`](extensions/pi-until) | Repeat until a condition is met |
+| [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) | External — structured questions with multi-select, previews, and notes |
+
+Deterministic workflow orchestration is provided by the external
+[`@quintinshaw/pi-dynamic-workflows`](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows)
+package, loaded from its own extension entry through the root `pi.extensions` manifest.
 
 ### Search & Web
 
 | Extension | Description |
 |-----------|-------------|
-| [`pi-web-tools`](extensions/pi-web-tools) | Web search and fetch tools |
+| [`pi-web-access`](https://github.com/nicobailon/pi-web-access) | External — web search, page/PDF extraction, repository and video access |
 
 ### Environment & Integration
 
 | Extension | Description |
 |-----------|-------------|
 | [`pi-direnv`](extensions/pi-direnv) | Auto-load direnv environment variables |
-| [`pi-telegram`](extensions/pi-telegram) | Telegram bridge for mobile messaging |
 | [`pi-codex`](extensions/pi-codex) | OpenAI Codex integration — review and rescue tasks |
-| [`pi-notify`](extensions/pi-notify) | Desktop notifications when agent finishes |
+| [`@bacnh85/pi-notify`](https://github.com/bacnh85/pi-extensions/tree/main/pi-notify) | External — desktop notifications for completion, errors, and questions |
 
 ### Input & Voice
 
 | Extension | Description |
 |-----------|-------------|
 | [`pi-voice`](extensions/pi-voice) | Speech-to-text — Groq, OpenAI, or local Whisper |
-| [`pi-inline-bash`](extensions/pi-inline-bash) | Expand `!{command}` patterns in prompts |
 | [`pi-btw`](extensions/pi-btw) | Ephemeral side questions without tool access |
 
 ### UI
@@ -88,12 +89,23 @@ All extensions follow the same structure:
 | Extension | Description |
 |-----------|-------------|
 | [`pi-footer`](extensions/pi-footer) | Custom footer with git branch, tokens, status |
+| [`pi-themes`](extensions/pi-themes) | Ships the `lavender` theme |
 
 ### Utility
 
 | Extension | Description |
 |-----------|-------------|
 | [`pi-common`](extensions/pi-common) | Shared `createUiColors` and color utilities |
+
+## External plugin migration
+
+Questionnaires, web access, and notifications are now provided by pinned external
+packages, activated by the aggregator. Do not install a second copy alongside it.
+The old `pi-questionnaire`, `pi-web-tools`, and `pi-notify` sources have been removed
+from the repository; only the pinned external packages remain.
+
+See [migration notes](docs/plugin-migration.md) for renamed tools, configuration,
+and Linux/Nix notification requirements. Restart Pi after updating dependencies.
 
 ## Development
 

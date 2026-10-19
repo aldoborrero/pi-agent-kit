@@ -2,26 +2,30 @@
 
 ## Project Overview
 
-pi-agent-kit is a toolkit for AI coding agents providing skills, extensions, themes, and specialized agents for pi-coding-agent and related agent runtimes.
+pi-agent-kit is a toolkit for AI coding agents providing extensions, themes, and specialized agents for pi-coding-agent and related agent runtimes. It ships as a Bun workspace of 19 local `@aldoborrero/pi-*` packages. External packages provide workflows (`@quintinshaw/pi-dynamic-workflows`), subagents (`@bacnh85/pi-subagent`), rewind (`pi-rewind-hook`), structured questions (`@juicesharp/rpiv-ask-user-question`), web access (`pi-web-access`), and notifications (`@bacnh85/pi-notify`).
 
 ## Directory Structure
 
 ```
-pi-agent-kit/
-├── agents/           # Agent definitions (scout, planner, worker, reviewer, debugger, brainstormer)
-├── extensions/       # TypeScript extensions (35 local + 4 external npm packages)
-│   ├── _shared/      # Shared helpers (ui-colors, fancy-footer bridge)
-│   └── ...
-├── prompts/          # Workflow templates (brainstorm, debug, full-cycle, review)
-├── skills/           # Markdown-based agent instructions
-│   ├── ast-grep/     # AST-based structural code search
-│   ├── kagi-search/  # Privacy-focused web search
-│   ├── pexpect-cli/  # Interactive CLI automation
-│   ├── searxng-search/ # Self-hosted SearXNG search skill
-│   └── superpowers/  # 13 workflow skills (brainstorming, TDD, debugging, etc.)
-├── themes/           # Color themes (lavender)
-└── packages/         # Nix packages (pexpect-cli, searxng-search)
+agent-kit/
+├── agents/           # Agent definitions (explore, plan, build, review, debug, brainstorm)
+├── extensions/       # 19 TypeScript packages, each an @aldoborrero/pi-* workspace package
+│   ├── pi-agent-kit/ # Aggregator — imports every member extension + pi-rewind-hook
+│   ├── pi-common/    # Shared helpers (createUiColors, etc.) — no _shared/ dir exists
+│   └── ...           # see "Extensions Quick Reference" below
+├── prompts/          # Prompt templates (brainstorm, debug, explore, full-cycle, review)
+├── themes/           # Provided by extensions/pi-themes/themes (lavender) + @xynogen/pix-themes
+└── packages/         # Python packages with Nix build wrappers (pexpect-cli, searxng-search)
 ```
+
+Root `package.json` lists three entries in `pi.extensions`: `extensions/pi-agent-kit` and the
+extension entries shipped by `@bacnh85/pi-subagent`
+(`node_modules/@bacnh85/pi-subagent/extensions/index.ts`) and `@quintinshaw/pi-dynamic-workflows`
+(`node_modules/@quintinshaw/pi-dynamic-workflows/extensions/workflow.ts`). The aggregator
+(`extensions/pi-agent-kit/src/extension.ts`) imports each active member extension's factory (including the external question, web, and notification factories) and
+calls it against the same Pi host. The two external packages load from their own entries and
+register their tools and commands themselves; the workflow engine's package exports do not
+expose its entry for import at all, and root `pi.skills` exposes its two skills.
 
 ## Environment Variables
 
@@ -34,17 +38,21 @@ direnv allow
 
 | Variable | Extension | Description |
 |----------|-----------|-------------|
-| `GROQ_API_KEY` | groq-provider, voice | Groq API key (LPU inference + STT) |
-| `OPENAI_API_KEY` | voice | OpenAI Whisper for voice transcription |
-| `OPENROUTER_API_KEY` | openrouter-provider | OpenRouter API key |
-| `TOGETHER_API_KEY` | together-provider | Together AI API key |
-| `BRAVE_API_KEY` | brave-search, web-tools | Brave Search API key |
-| `EXA_API_KEY` | exa-search, web-tools | Exa Search API key |
-| `SEARXNG_API_BASE` | web-tools, searxng-search | Base URL for a SearXNG instance with JSON enabled |
-| `PI_ORACLE_MODEL` | oracle | Override oracle suggestion model (e.g. `groq/openai/gpt-oss-20b`) |
-| `VOICE_LANG` | voice | Transcription language (default: `en`) |
-| `VOICE_MODE` | voice | Output mode: `paste` or `send` |
-| `VOICE_DAEMON_URL` | voice | Local Whisper daemon URL |
+| `GROQ_API_KEY` | pi-voice | Groq API key (STT via Whisper) |
+| `OPENAI_API_KEY` | pi-voice | OpenAI Whisper for voice transcription |
+| `VOICE_LANG` | pi-voice | Transcription language (default: `en`) |
+| `VOICE_MODE` | pi-voice | Output mode: `paste` or `send` |
+| `VOICE_DAEMON_URL` | pi-voice | Local Whisper daemon URL |
+| `EXA_API_KEY` | pi-web-access | Exa search API key |
+| `BRAVE_API_KEY` | pi-web-access | Brave search API key |
+| `TAVILY_API_KEY` | pi-web-access | Tavily search API key |
+| `SERPER_API_KEY` | pi-web-access | Serper search API key |
+| `PERPLEXITY_API_KEY` | pi-web-access | Perplexity search API key |
+| `FIRECRAWL_API_KEY` | pi-web-access | Firecrawl API key (search + fetch) |
+| `SEARXNG_BASE_URL` | pi-web-access | Base URL for a SearXNG instance with JSON enabled |
+| `PI_SUGGEST_MODEL` | pi-suggest | Override the next-prompt suggestion model |
+| `PI_UNTIL_MAX_ITERATIONS` | pi-until | Cap iterations for the `/until` loop |
+| `RBW_TIMEOUT_MS` / `RBW_UNLOCK_TIMEOUT_MS` | pi-bitwarden | rbw command / unlock timeouts |
 
 ## Extensions Quick Reference
 
@@ -52,140 +60,99 @@ direnv allow
 
 | Command | Extension | Description |
 |---------|-----------|-------------|
-| `/plan` | plan-mode | Read-only exploration → plan → tracked execution |
-| `/until tests` | until | Repeat until condition met (TDD, iterative fixes) |
-| `/loop 5m <prompt>` | loop | Periodic polling on a schedule (persistent across sessions) |
-| `/oracle [on\|off\|model\|status]` | oracle | Toggle/configure next-prompt suggestions |
-| `/diff` | diff | Interactive diff viewer (tuicr/delta/git) |
-| `/voice [config\|provider\|lang\|mode]` | voice | Toggle-to-record speech-to-text (`Ctrl+Alt+V`) |
-| `/telegram setup` | telegram | Telegram bridge for mobile use |
-| `/bw [unlock\|lock\|sync\|status]` | bitwarden | Vault management via rbw |
-| `/sandbox [on\|off]` | sandbox | Toggle OS-level bash sandboxing |
-| `/commit` | git-commit-context | Commit with git status/log context |
-| `/context` | context | Token usage dashboard |
-| `/handoff <goal>` | handoff | Transfer context to new session |
-| `/btw <question>` | btw | Ephemeral side question (no tools, no context pollution) |
-| `/codex [setup\|review\|rescue\|status]` | codex | OpenAI Codex integration |
-| `/exit` | exit | Alias for /quit |
-| `/direnv` | direnv | Force reload direnv environment |
-| `/notify` | notify | Toggle desktop notifications |
-| `/fancy-footer` | pi-fancy-footer | Interactive footer config editor |
-| `/superpowers:*` | skill-namespaces | Namespaced skill commands |
+| `/until <cond>` | pi-until | Repeat until a condition is met (e.g. `/until tests`, `/until custom <cond>`) |
+| `/loop 5m <prompt>` | pi-loop | Schedule, list, or delete recurring prompts on a timer |
+| `/suggest` | pi-suggest | Toggle/manage next-prompt suggestions |
+| `/diff` | pi-diff | View uncommitted changes (tuicr/delta/git diff) |
+| `/voice [config\|provider\|lang\|mode\|cancel\|status]` | pi-voice | Toggle recording or configure speech-to-text |
+| `/bw`, `/rbw` | pi-bitwarden | Bitwarden vault management via rbw |
+| `/sandbox [on\|off]` | pi-sandbox | Toggle OS-level bash sandboxing or show status |
+| `/context` | pi-context | Show loaded context overview (tokens, extensions, cost) |
+| `/btw <question>` | pi-btw | Ephemeral side question in a bottom overlay (no tools, no context pollution) |
+| `/codex [setup\|review\|adversarial-review\|rescue\|status\|result\|cancel]` | pi-codex | OpenAI Codex integration |
+| `/exit` | pi-alias | Exit pi cleanly (alias for `/quit`) |
+| `/clear` | pi-alias | Clear conversation and start fresh (alias for `/new`) |
+| `/direnv` | pi-direnv | Reload direnv environment variables |
+| `--no-notify` (CLI flag) | @bacnh85/pi-notify | Disable notifications; configure events/sound via the `notify` settings object (no `/notify` toggle) |
+| `/subagent`, `/agent` | @bacnh85/pi-subagent | Configure model roles, list agents and inspect delegated runs |
+| `/websearch <query>` | pi-web-access | Open the search curator |
+| `/curator` | pi-web-access | Configure the search workflow |
+| `/workflows`, `/workflows-models`, `/workflows-progress`, `/workflows-trigger` | pi-dynamic-workflows | Manage and inspect dynamic workflows |
+| `/effort` | pi-dynamic-workflows | Set the effort level for workflows |
+| `/ultracode`, `/deep-research`, `/adversarial-review`, `/code-review`, `/codebase-audit`, `/multi-perspective` | pi-dynamic-workflows | Built-in workflow commands |
 
 ### Tools (LLM-callable)
 
 | Tool | Extension | Description |
 |------|-----------|-------------|
-| `web_search` | web-tools | **Preferred** high-level web search (uses Exa, Brave, and SearXNG backends) |
-| `web_fetch` | web-tools | **Preferred** high-level page fetcher with markdown output |
-| `ast_grep` | ast-grep | Structural code search via AST patterns |
-| `github_search_code` | github-search | Search code on GitHub |
-| `github_search_issues` | github-search | Search GitHub issues |
-| `github_search_prs` | github-search | Search GitHub PRs |
-| `subagent` | subagent | Delegate tasks to specialized agents (single, parallel, chain) |
-| `questionnaire` | questionnaire | Ask structured multi-question UI with options |
-| `tuicr` | tuicr | Interactive code review with feedback capture |
-| `bw_get` / `bw_list` | bitwarden | Secure vault access via rbw (passwords masked, require confirmation) |
-| `signal_loop_success` | until | Break out of an /until loop |
-| `exa_search` | exa-search | Backend-specific Exa search (prefer `web_search`) |
-| `brave_search` | brave-search | Backend-specific Brave search (prefer `web_search`) |
-| `jina` | jina | Backend-specific Jina page fetch (prefer `web_fetch`) |
-
-### Providers
-
-| Provider | Extension | Models |
-|----------|-----------|--------|
-| Groq | groq-provider | GPT-OSS 120B/20B, Kimi K2, Qwen3 32B, Llama 4 Scout |
-| OpenRouter | openrouter-provider | Kimi K2.5, Gemini 2.5 Pro, Grok 4, Devstral, ByteDance Seed |
-| Together AI | together-provider | Llama, DeepSeek, Qwen, Kimi, GLM, Mistral |
+| `web_search` | pi-web-access | Web search across configured providers; schema differs from the retired local tool |
+| `fetch_content` | pi-web-access | Extract pages, PDFs, repositories, and videos |
+| `ast_grep` | pi-ast-grep | Structural code search via AST patterns |
+| `subagent` | @bacnh85/pi-subagent | Delegate tasks to specialized agents (single, parallel, chain) |
+| `ask_user_question` | @juicesharp/rpiv-ask-user-question | Structured questions with multi-select, previews, and notes |
+| `tuicr` | pi-tuicr | Interactive code review with feedback capture |
+| `edit` | pi-edit | Replaces the built-in edit tool (single, `multi` batch, and Codex-style patch modes) |
+| `bw_get` / `bw_list` | pi-bitwarden | Secure vault access via rbw (passwords masked, require confirmation) |
+| `signal_loop_success` | pi-until | Signal that an `/until` loop's condition has been met |
+| `bash` (sandboxed) | pi-sandbox | Re-registers the built-in bash tool wrapped in OS-level sandboxing when enabled |
+| `workflow`, `workflow_control` | pi-dynamic-workflows | Run and control dynamic workflows (registered by `@quintinshaw/pi-dynamic-workflows`) |
 
 ### Background / Automatic
 
 | Extension | Description |
 |-----------|-------------|
-| direnv | Auto-load `.envrc` + `.direnv/` on change via fs.watch (not per-bash) |
-| git-checkpoint | Git stash per turn for `/fork` restore |
-| notify | Desktop notification when agent finishes (OSC 777/99/Windows toast) |
-| oracle | Ghost-text next-prompt suggestions after each agent turn |
-| inline-bash | Expand `!{command}` patterns in prompts |
-| recorder | Session analytics to SQLite (turns, tool calls, costs) |
-| permission-gate | Confirm before dangerous bash commands (rm -rf, force-push, sudo) |
-| footer | Git branch, context usage, cost in footer (falls back if pi-fancy-footer absent) |
-| pi-fancy-footer | Rich two-row footer with widgets, git diff, PR, context bar |
-| lsp-guidelines | Steer agent toward LSP tools |
-| skill-namespaces | Register `/superpowers:*` commands |
+| pi-direnv | Auto-load `.envrc` + `.direnv/` on change via fs.watch (not per-bash) |
+| @bacnh85/pi-notify | Desktop notifications on completion, errors, and blocking questions |
+| pi-suggest | Ghost-text next-prompt suggestions after each agent turn |
+| pi-footer | Rich adaptive status bar (git branch, context usage, cost); registers a `footer-two-line` flag |
+| pi-themes | Ships the `lavender` theme (`extensions/pi-themes/themes`) |
+| pi-common | Shared UI helpers (`createUiColors`, color utilities) consumed by other extensions |
 
 ### External (npm)
 
+Question/web/notify migration and configuration: [plugin-migration.md](docs/plugin-migration.md).
+The local `pi-questionnaire`, `pi-web-tools`, and `pi-notify` sources were removed from the
+workspace when the upstream replacements were adopted; do not re-add them alongside those.
+
 | Package | Description |
 |---------|-------------|
-| pi-fancy-footer | Rich footer with git info, context bar, extension widgets |
-| pi-lsp-extension | LSP integration (diagnostics, hover, definition, references) |
-| pi-mcp-adapter | MCP server bridge |
-| pi-interactive-shell | Full PTY emulation |
+| `@quintinshaw/pi-dynamic-workflows` | Deterministic workflow engine; registers the workflow tools and `/workflows`, `/effort`, and built-in workflow commands. Loaded from its own extension entry through root `pi.extensions`; its `workflow-authoring` and `workflow-patterns` skills through root `pi.skills` |
+| `@bacnh85/pi-subagent` | In-process `subagent` tool (single, parallel, chain with `{previous}`) plus `/subagent` and `/agent`. Loaded from its own extension entry through root `pi.extensions`. The aggregator defaults `PI_SUBAGENT_HERDR` to `off` so delegation stays in-process inside herdr |
+| `@juicesharp/rpiv-ask-user-question` | Structured questions; loaded through the aggregator |
+| `pi-web-access` | Search and extraction; loaded through the aggregator |
+| `@bacnh85/pi-notify` | Native notifications; loaded through the aggregator |
+| `pi-rewind-hook` | File-state rewind points per prompt and assistant turn, restorable from `/fork` and `/tree`; loaded via the pi-agent-kit aggregator. Pinned to the upstream commit that binds each snapshot to its own prompt (nicobailon/pi-rewind-hook#19) until a release includes it |
 
 ## Key Conventions
 
-### Shared Helpers (`extensions/_shared/`)
+### Shared Helpers (`@aldoborrero/pi-common`)
 
-| File | Description |
-|------|-------------|
-| `ui-colors.ts` | `createUiColors(theme)` — semantic color wrappers (primary, meta, warning, danger…). Always use this instead of raw `theme.fg()`. |
-| `fancy-footer.ts` | Optional pi-fancy-footer bridge. `registerFancyFooterWidget(pi, widgetFn)` returns `true` if pi-fancy-footer is active. Extensions fall back to `ctx.ui.setStatus()` when it returns `false`. |
-| `pi-fancy-footer-shim.d.ts` | Type declarations for `pi-fancy-footer/api` (dynamic import, no hard dependency). |
+Shared UI helpers live in the `extensions/pi-common` workspace package — there is no
+`extensions/_shared/` directory. Import them from `@aldoborrero/pi-common`:
 
-### pi-fancy-footer Integration
-
-Extensions that show status support an optional pi-fancy-footer widget. The pattern:
-
-```typescript
-const fancyFooterReady = registerFancyFooterWidget(pi, () => ({
-  id: "pi-agent-kit.myext",
-  label: "My Extension",
-  description: "...",
-  defaults: { row: 1, position: 10, align: "right", fill: "none" },
-  visible: () => someCondition(),
-  renderText: () => "myext:state",
-})).then((active) => { fancyFooterActive = active; return active; });
-
-// In session_start:
-await fancyFooterReady;
-
-// In updateStatus:
-if (fancyFooterActive) {
-  ctx.ui.setStatus("myext", undefined);  // clear local status
-  void refreshFancyFooter(pi);           // trigger footer re-render
-  return;
-}
-ctx.ui.setStatus("myext", colors.warning("myext:on"));  // fallback
-```
-
-**Widget visibility policy**: only show widget when state is noteworthy. Don't show `myext:on` if "on" is the expected default.
-
-### Skills (`skills/`)
-
-- Each skill has a `SKILL.md` with frontmatter `name` that MUST match the parent directory name
-- Skills under `superpowers/` get `/superpowers:*` namespace commands via skill-namespaces extension
-- Compatible with pi-coding-agent and related agent runtimes
+| Export | Description |
+|--------|-------------|
+| `createUiColors(theme)` | Semantic color wrappers (primary, meta, warning, danger…). Prefer this over raw `theme.fg()`. |
 
 ### Pi Extensions (`extensions/`)
 
-- TypeScript files that register tools with pi-coding-agent
+- Each extension is an `@aldoborrero/pi-*` workspace package that registers tools/commands with pi-coding-agent
 - Use event hooks (`session_start`, `tool_result`, etc.) for side effects
-- Prefer high-level web tools (`web_search`, `web_fetch`) over backend-specific tools (`exa_search`, `brave_search`, `jina`)
-- Each extension has its own directory with a `README.md`
-- Extensions with npm dependencies have their own `package.json`
-- **If an extension directory has multiple `.ts` files** (including `.d.ts` shims), add a `package.json` with `pi.extensions` pointing to the entry file. Without this, pi scans the directory and tries to load every `.ts` file as an extension.
-- npm package extensions are referenced as `node_modules/<pkg>` in `package.json`
+- Each extension has its own directory with a `README.md` and `package.json`
+- **If an extension directory has multiple `.ts` files** (including `.d.ts` shims), the `package.json` must point `pi.extensions` at the entry file. Without this, pi scans the directory and tries to load every `.ts` file as an extension.
+- The `pi-agent-kit` aggregator imports every member extension's factory and invokes it against the same Pi host; the root `pi.extensions` lists `extensions/pi-agent-kit` plus the `@bacnh85/pi-subagent` and `@quintinshaw/pi-dynamic-workflows` entries.
 
 ### Agents (`agents/`)
 
-- Lean markdown system prompts that load skills at runtime
-- Scout (haiku) for fast exploration, Planner (opus) for design
+- Lean markdown system prompts with YAML frontmatter (`name`, `description`, `tools`)
+- Real agents: `explore`, `plan`, `build`, `review`, `debug`, `brainstorm`
+- No agent pins a `model`: each one inherits the model of the session that delegates to it, so the definitions do not go stale. Override per agent in `~/.pi/agent/settings.json` under `subagent.agentModels` when one needs a different model
+- Pi has no manifest key for agents. `@bacnh85/pi-subagent` and `@quintinshaw/pi-dynamic-workflows` read them from `~/.pi/agent/agents/` (user) or `.pi/agents/` (project), so link this directory there: `ln -s "$PWD/agents" ~/.pi/agent/agents`
+- An explicit `tools:` list may only name tools that exist; an unknown name makes the delegation fail
 
 ### Prompts (`prompts/`)
 
-- Workflow templates that orchestrate agent chains via subagent extension
+- Prompt templates (`brainstorm`, `debug`, `explore`, `full-cycle`, `review`), loaded by Pi as slash commands through root `pi.prompts`; each one drives the `subagent` tool
 
 ## Development
 
@@ -196,16 +163,16 @@ nix develop   # Enter dev shell
 nix fmt       # Format code
 ```
 
-### Testing Extensions
+### Testing
 
 ```bash
-pi -e ./extensions/example/example.ts
+bun test      # Run the workspace test suite (Bun's built-in runner discovers *.test.ts)
 ```
 
 ### Installing
 
 ```bash
-pi install git:github.com/aldoborrero/pi-agent-kit
+pi install git:github.com/aldoborrero/agent-kit
 ```
 
 ---
@@ -370,20 +337,15 @@ pi.on("session_shutdown", async () => {
 });
 ```
 
-### 9. Oracle Model Configuration
+### 9. Suggestion Model Configuration
 
-Oracle uses a separate agent session for suggestion generation. To use a cheaper/faster model:
+pi-suggest generates next-prompt suggestions with a separate model. Override it with a cheaper/faster model:
 
 ```bash
-PI_ORACLE_MODEL=groq/openai/gpt-oss-20b  # fast + cheap
-PI_ORACLE_MODEL=groq/qwen/qwen3-32b       # better quality
+PI_SUGGEST_MODEL=groq/openai/gpt-oss-20b  # fast + cheap
 ```
 
-Or via `/oracle model` (interactive TUI selector) or `<cwd>/.pi/oracle.json`.
-
-### 10. Telegram Extension Architecture
-
-pi-telegram bridges pi to Telegram. Pi owns session state — the bridge just shuttles messages. Don't duplicate pi's session management in the bridge. Use `MessageQueue` for messages arriving while agent is busy.
+Or manage it interactively via `/suggest`.
 
 ---
 
@@ -399,5 +361,5 @@ pi-telegram bridges pi to Telegram. Pi owns session state — the bridge just sh
 8. **Correct execute signature** — `(toolCallId, params, signal, onUpdate, ctx)`
 9. **Pi owns state, extensions bridge** — don't duplicate session management
 10. **Async over sync** — never block the event loop in hot paths
-11. **Prefer shared ui-colors** — use `createUiColors(theme)` instead of raw `theme.fg()`
-12. **Optional dependencies** — use dynamic import + fallback for optional integrations (see fancy-footer bridge)
+11. **Prefer shared ui-colors** — import `createUiColors(theme)` from `@aldoborrero/pi-common` instead of raw `theme.fg()`
+12. **Optional dependencies** — use dynamic import + fallback for optional integrations
