@@ -43,6 +43,10 @@ Optional config at `~/.config/searxng-search/config.json`:
 }
 ```
 
+Config `headers` are merged over the built-in request headers, so a `headers` entry
+**overrides** the default of the same name (e.g. setting `User-Agent` here replaces the
+default `searxng-search/0.1`). Other keys are added.
+
 ## Development
 
 ```bash

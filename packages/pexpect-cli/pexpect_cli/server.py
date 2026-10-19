@@ -148,6 +148,9 @@ def main() -> None:
     with suppress(FileNotFoundError):
         sock_path.unlink()
     sock.bind(str(sock_path))
+    # Restrict the socket to the owning user. This tool executes arbitrary code
+    # received over the socket, so only the single trusted user may connect.
+    os.chmod(sock_path, 0o600)
     sock.listen(1)
 
     print(f"[pexpect-server] Session {task_id} ready")

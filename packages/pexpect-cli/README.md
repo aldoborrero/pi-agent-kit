@@ -36,6 +36,24 @@ nix profile install .#pexpect-cli
 
 The Nix package automatically wraps the binaries with `pueue` in PATH.
 
+## Security
+
+`pexpect-server` executes arbitrary Python/pexpect code received over its
+`AF_UNIX` socket, so anyone able to connect to that socket has full code
+execution as the user running the server. This is intentional: the tool is
+designed for a **single-user, single-trust-domain** environment.
+
+Access control relies on filesystem permissions:
+
+- The socket directory is created with mode `0700` (owner-only), under
+  `$XDG_RUNTIME_DIR/pexpect-cli` (preferred) or
+  `$XDG_CACHE_HOME/pexpect-cli/sockets`.
+- Each socket file is set to mode `0600` (owner read/write only) after bind.
+
+Do not point `XDG_RUNTIME_DIR`/`XDG_CACHE_HOME` at a shared or
+world-accessible location, and do not run the server on a multi-user host
+where other users could reach the socket.
+
 ## Requirements
 
 - Python >= 3.13

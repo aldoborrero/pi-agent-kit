@@ -41,6 +41,16 @@ Legacy compatibility is still kept for:
 
 Set `"sandbox.enabled": true` in settings to auto-enable on session start.
 
+## Fail-closed behavior
+
+Sandboxing is a security control, so it fails **closed**. Once sandboxing has been requested (config `enabled: true`, or `/sandbox on`) but the OS sandbox cannot be activated — for example initialization fails, or the platform is unsupported — bash is **blocked** rather than silently run unsandboxed:
+
+- The `bash` tool returns an error result instead of executing.
+- Interactive `!` bash returns the same error instead of executing.
+- The footer status shows `error`, and a notification explains what happened.
+
+This blocked state is **sticky** for the rest of the session. To explicitly opt into running unsandboxed bash, run `/sandbox off` (or restart with `--no-sandbox`). When sandboxing was never requested (disabled), bash runs normally with no blocking.
+
 ## Flags
 
 | Flag | Description |

@@ -329,7 +329,9 @@ export default function (pi: ExtensionAPI) {
     description: `Retrieve a Bitwarden vault item by name or folder/name.
 
 By default returns only the username. Set field to retrieve a specific field.
-Sensitive fields (password, totp, notes) require user confirmation.
+Only 'username' and 'uris' are returned freely; password, totp, notes, and any
+custom/hidden field are treated as sensitive and require user confirmation.
+Sensitive fields are unavailable in headless (non-interactive) sessions.
 
 The vault must be unlocked first (use /bw unlock command).
 
@@ -364,11 +366,30 @@ Examples:
       }
 
       const field = params.field ?? "username";
-      const sensitiveFields = ["password", "totp", "notes"];
-      const isSensitive = sensitiveFields.includes(field.toLowerCase());
 
-      // Require user confirmation for sensitive fields
-      if (isSensitive && ctx.hasUI) {
+      // Fields that are safe to return without confirmation. Everything else —
+      // including custom/hidden fields — is treated as sensitive by default so a
+      // custom field named e.g. "recovery_code" or "secret_access_key" cannot be
+      // exfiltrated without the same gate as password/totp/notes.
+      //
+      // Only names rbw resolves to a built-in login field belong here. Any
+      // other name reaches `rbw get --field`, which for logins returns the
+      // first custom field whose name *contains* it, so "name", "uri" or
+      // "folder" would expose hidden custom fields without confirmation.
+      const nonSensitiveFields = ["username", "uris"];
+      const isSensitive = !nonSensitiveFields.includes(field.toLowerCase());
+
+      // Require user confirmation for sensitive fields, and fail closed when
+      // there is no interactive session to confirm through. Without a UI we
+      // cannot prompt, so headless modes (print/json) must never return the
+      // raw secret.
+      if (isSensitive) {
+        if (!ctx.hasUI) {
+          return errorResult(
+            "Sensitive fields require an interactive session; not available in headless mode.",
+          );
+        }
+
         const confirmed = await ctx.ui.confirm(
           `Expose ${field} for "${params.name}"?`,
           `The agent is requesting the ${field}. This value will be visible in the conversation.`,
@@ -546,37 +567,47 @@ The vault must be unlocked first (use /bw unlock command).`,
     updateStatus(ctx);
   });
 
-  pi.on("before_agent_start", async (_event, _ctx) => {
-    if (!isAvailable() || !isUnlocked()) {
-      return {
-        systemPrompt:
-          "The Bitwarden vault is currently LOCKED. If the user asks for credentials, " +
-          "remind them to run /bw unlock before using the bw_get or bw_list tools.",
-      };
-    }
-  });
-
   // ── Safety: block direct rbw/bw usage in bash ─────────────────────────────
+  //
+  // BEST-EFFORT ONLY — this is NOT a security boundary. It is a guardrail to
+  // stop the agent from casually shelling out to rbw/bw and dumping secrets
+  // into a tool result. It can be bypassed (e.g. variable indirection, aliases,
+  // wrapper scripts, or entirely different execution paths such as inline-bash
+  // `!{...}` that never route through this tool_call hook). Do not rely on it
+  // to contain a determined or adversarial caller.
+
+  // Returns true if any whitespace-separated token resolves to the rbw or bw
+  // binary. This tokenized check catches simple obfuscation that a fixed
+  // `\brbw\s+get\b`-style regex misses (backslash line-continuation, extra
+  // separators, unlisted subcommands), while staying deliberately simple.
+  function mentionsRbwOrBw(command: string): boolean {
+    // Normalize line continuations and shell separators to whitespace so
+    // tokens split cleanly regardless of how the command is laid out.
+    const normalized = command.replace(/\\\r?\n/g, " ").replace(/[;&|()<>]/g, " ");
+    for (const rawToken of normalized.split(/\s+/)) {
+      // Strip a leading path (e.g. /usr/bin/rbw) and any quoting so we compare
+      // the resolved program name, case-insensitively.
+      const token = rawToken.replace(/^["']|["']$/g, "");
+      const base = token.split("/").pop()?.toLowerCase() ?? "";
+      if (base === "rbw" || base === "bw") return true;
+    }
+    return false;
+  }
 
   pi.on("tool_call", async (event, _ctx) => {
     if (event.toolName !== "bash") return undefined;
 
     const command = event.input.command as string;
 
-    // Block direct rbw/bw CLI access to prevent secrets appearing in tool results
-    if (/\brbw\s+(get|code|list)\b/.test(command)) {
+    // Block any command that appears to invoke the rbw or bw binary. This is
+    // intentionally broad (blocks all subcommands, not just get/list) because
+    // even `rbw export` or `bw list` can leak vault contents. See best-effort
+    // note above.
+    if (mentionsRbwOrBw(command)) {
       return {
         block: true,
         reason:
-          "Direct rbw credential access in bash is blocked. Use the bw_get tool instead, which masks sensitive fields and requires user confirmation.",
-      };
-    }
-
-    if (/\bbw\s+(get|list|unlock|login|export)\b/.test(command)) {
-      return {
-        block: true,
-        reason:
-          "Direct bw CLI access is blocked. Use the bw_get and bw_list tools instead.",
+          "Direct rbw/bw CLI access in bash is blocked. Use the bw_get and bw_list tools instead, which mask sensitive fields and require user confirmation.",
       };
     }
 

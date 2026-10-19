@@ -226,7 +226,16 @@ export default function (pi: ExtensionAPI) {
 	let cachedBash = createBashTool(projectCwd);
 	let sandboxEnabled = false;
 	let sandboxInitialized = false;
+	// True once the user actually asked for sandboxing (config enabled:true or
+	// /sandbox on). Used to fail CLOSED: if sandboxing was requested but
+	// initialization failed, we must not silently run unsandboxed bash.
+	let sandboxRequested = false;
 	let sandboxFooterState: "on" | "restricted" | "off" | "error" = "off";
+
+	const SANDBOX_FAILURE_MESSAGE =
+		"Sandbox was requested but failed to initialize, so bash is blocked to avoid " +
+		"running unsandboxed. Run `/sandbox off` to explicitly disable sandboxing, or " +
+		"run `/sandbox on` to retry initialization.";
 
 	function updateSandboxStatus(ctx: ExtensionContext, status: "on" | "restricted" | "off" | "error"): void {
 		sandboxFooterState = status;
@@ -247,8 +256,20 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		...cachedBash,
 		label: "bash (sandboxed)",
-		async execute(id, params, signal, onUpdate, _ctx) {
+		async execute(id, params, signal, onUpdate, ctx) {
 			if (!sandboxEnabled || !sandboxInitialized) {
+				// Fail CLOSED: if the user requested sandboxing but it isn't
+				// active (initialization failed), refuse rather than silently
+				// running unsandboxed bash. This state is sticky until the user
+				// explicitly runs `/sandbox off`.
+				if (sandboxRequested) {
+					updateSandboxStatus(ctx, "error");
+					return {
+						content: [{ type: "text", text: SANDBOX_FAILURE_MESSAGE }],
+						details: undefined as never,
+						isError: true,
+					};
+				}
 				return cachedBash.execute(id, params, signal, onUpdate);
 			}
 
@@ -260,7 +281,22 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("user_bash", () => {
-		if (!sandboxEnabled || !sandboxInitialized) return;
+		if (!sandboxEnabled || !sandboxInitialized) {
+			// Fail CLOSED for interactive `!` bash too: if sandboxing was
+			// requested but isn't active, block execution instead of falling
+			// back to an unsandboxed run.
+			if (sandboxRequested) {
+				return {
+					result: {
+						output: SANDBOX_FAILURE_MESSAGE,
+						exitCode: 1,
+						cancelled: false,
+						truncated: false,
+					},
+				};
+			}
+			return;
+		}
 		return { operations: createSandboxedBashOps() };
 	});
 
@@ -270,6 +306,7 @@ export default function (pi: ExtensionAPI) {
 		const noSandbox = pi.getFlag("no-sandbox") as boolean;
 
 		if (noSandbox) {
+			sandboxRequested = false;
 			sandboxEnabled = false;
 			sandboxInitialized = false;
 			updateSandboxStatus(ctx, "off");
@@ -280,18 +317,23 @@ export default function (pi: ExtensionAPI) {
 		const config = loadConfig(ctx.cwd);
 
 		if (!config.enabled) {
+			sandboxRequested = false;
 			sandboxEnabled = false;
 			sandboxInitialized = false;
 			updateSandboxStatus(ctx, "off");
 			return;
 		}
 
+		// The user asked for sandboxing via config. From here on, any failure
+		// must fail CLOSED rather than silently running unsandboxed bash.
+		sandboxRequested = true;
+
 		const platform = process.platform;
 		if (platform !== "darwin" && platform !== "linux") {
 			sandboxEnabled = false;
 			sandboxInitialized = false;
 			updateSandboxStatus(ctx, "restricted");
-			ctx.ui.notify(`Sandbox not supported on ${platform}`, "warning");
+			ctx.ui.notify(`Sandbox not supported on ${platform}; bash is blocked. Run /sandbox off to allow unsandboxed bash.`, "warning");
 			return;
 		}
 
@@ -314,10 +356,14 @@ export default function (pi: ExtensionAPI) {
 			updateSandboxStatus(ctx, "on");
 			ctx.ui.notify("Sandbox initialized", "info");
 		} catch (err) {
+			// sandboxRequested stays true: bash fails CLOSED until /sandbox off.
 			sandboxEnabled = false;
 			sandboxInitialized = false;
 			updateSandboxStatus(ctx, "error");
-			ctx.ui.notify(`Sandbox initialization failed: ${err instanceof Error ? err.message : err}`, "error");
+			ctx.ui.notify(
+				`Sandbox initialization failed: ${err instanceof Error ? err.message : err}. Bash is blocked; run /sandbox off to allow unsandboxed bash.`,
+				"error",
+			);
 		}
 	});
 
@@ -350,10 +396,16 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 
+				// The user is explicitly requesting sandboxing. Mark it as
+				// requested so that if initialization fails, bash fails CLOSED
+				// (blocked) instead of running unsandboxed, and stays that way
+				// until /sandbox off.
+				sandboxRequested = true;
+
 				const platform = process.platform;
 				if (platform !== "darwin" && platform !== "linux") {
 					updateSandboxStatus(ctx, "restricted");
-					ctx.ui.notify(`Sandbox not supported on ${platform}`, "error");
+					ctx.ui.notify(`Sandbox not supported on ${platform}; bash is blocked. Run /sandbox off to allow unsandboxed bash.`, "error");
 					return;
 				}
 
@@ -377,21 +429,31 @@ export default function (pi: ExtensionAPI) {
 					updateSandboxStatus(ctx, "on");
 					ctx.ui.notify("Sandbox enabled", "info");
 				} catch (err) {
+					// sandboxRequested stays true: bash fails CLOSED until /sandbox off.
 					sandboxEnabled = false;
 					sandboxInitialized = false;
 					updateSandboxStatus(ctx, "error");
-					ctx.ui.notify(`Sandbox initialization failed: ${err instanceof Error ? err.message : err}`, "error");
+					ctx.ui.notify(
+						`Sandbox initialization failed: ${err instanceof Error ? err.message : err}. Bash is blocked; run /sandbox off to allow unsandboxed bash.`,
+						"error",
+					);
 				}
 				return;
 			}
 
 			// /sandbox off
 			if (arg === "off" || arg === "disable") {
-				if (!sandboxEnabled) {
+				// Note: check sandboxRequested, not just sandboxEnabled. In the
+				// fail-closed state (requested but init failed) sandboxEnabled is
+				// already false, yet we still need to clear the request so bash
+				// stops being blocked. This is the explicit acknowledgement to
+				// allow unsandboxed bash.
+				if (!sandboxEnabled && !sandboxRequested) {
 					ctx.ui.notify("Sandbox is already disabled", "info");
 					return;
 				}
 
+				sandboxRequested = false;
 				sandboxEnabled = false;
 				if (sandboxInitialized) {
 					try {
@@ -402,14 +464,18 @@ export default function (pi: ExtensionAPI) {
 					sandboxInitialized = false;
 				}
 				updateSandboxStatus(ctx, "off");
-				ctx.ui.notify("Sandbox disabled", "info");
+				ctx.ui.notify("Sandbox disabled; unsandboxed bash is now allowed", "info");
 				return;
 			}
 
 			// /sandbox (no args) — toggle or show status
 			if (!arg) {
 				const config = loadConfig(ctx.cwd);
-				const status = sandboxEnabled ? "ENABLED" : "DISABLED";
+				const status = sandboxEnabled
+					? "ENABLED"
+					: sandboxRequested
+						? "FAILED (bash blocked — run /sandbox off to allow unsandboxed bash)"
+						: "DISABLED";
 				const lines = [
 					`Sandbox: ${status}`,
 					"",

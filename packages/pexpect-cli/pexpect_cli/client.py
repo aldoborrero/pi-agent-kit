@@ -81,7 +81,7 @@ def start_session(name: str | None = None) -> str:
     # Pass necessary environment variables and session ID to server
     env_vars = [
         f"{var}={os.environ[var]}"
-        for var in ["XDG_CACHE_HOME", "PUEUE_CONFIG_DIR"]
+        for var in ["XDG_RUNTIME_DIR", "XDG_CACHE_HOME", "PUEUE_CONFIG_DIR"]
         if var in os.environ
     ]
 
@@ -157,9 +157,10 @@ def stop_session(session_id: str) -> None:
     # Find the pueue task ID for this session
     data = get_pueue_tasks()
 
-    # Find task with this session ID in the command
+    # Find task whose command ends with exactly this session ID
     for task_id, task in data["tasks"].items():
-        if session_id in task["command"]:
+        parts = task["command"].split()
+        if parts and parts[-1] == session_id:
             subprocess.run(["pueue", "kill", task_id], check=False)
             break
 

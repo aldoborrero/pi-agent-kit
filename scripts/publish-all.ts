@@ -75,14 +75,29 @@ function collectPackages(): PackageInfo[] {
 }
 
 async function isPublished(name: string, version: string): Promise<boolean> {
-	try {
-		const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
-		return response.ok;
-	} catch {
-		// Network failures should not silently skip a package. Let npm publish be
-		// the source of truth in the publish phase.
-		return false;
+	const url = `https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
+	const maxAttempts = 4;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			const response = await fetch(url);
+			if (response.ok) return true;
+			// 404 is a definitive "not on the registry" — no point retrying.
+			if (response.status === 404) return false;
+			// Other statuses (429/5xx) are transient; fall through to backoff.
+		} catch {
+			// Network error; retry with backoff before giving up.
+		}
+		if (attempt < maxAttempts) {
+			// Exponential backoff with jitter so a transient registry blip during
+			// the check phase doesn't turn a no-op run into a full publish attempt.
+			const base = Math.min(500 * 2 ** (attempt - 1), 8_000);
+			const delay = Math.floor(base * (0.5 + Math.random() * 0.5));
+			await new Promise((resolve) => setTimeout(resolve, delay));
+		}
 	}
+	// Exhausted retries: treat as "not published" and let `npm publish` be the
+	// source of truth (its EPUBLISHCONFLICT handling guards against duplicates).
+	return false;
 }
 
 async function publishOne(pkg: PackageInfo): Promise<"published" | "skipped-race" | "failed"> {

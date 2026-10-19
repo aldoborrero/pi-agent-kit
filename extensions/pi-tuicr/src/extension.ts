@@ -85,60 +85,79 @@ export default function (pi: ExtensionAPI) {
 
 			// Run tuicr with full terminal access
 			try {
-				await ctx.ui.custom<number | null>((tui, _theme, _kb, done) => {
-					tui.stop();
-					process.stdout.write("\x1b[2J\x1b[H");
+				let cancelled = false;
+				let exitStatus: number | null = null;
+				try {
+					await ctx.ui.custom<number | null>((tui, _theme, _kb, done) => {
+						tui.stop();
+						process.stdout.write("\x1b[2J\x1b[H");
 
-					const fd = openSync(outputFile, "w");
-					try {
-						const result = spawnSync("tuicr", tuicrArgs, {
-							stdio: ["inherit", fd, "inherit"],
-							env: process.env,
-							cwd: targetDir,
-						});
-						tui.start();
-						tui.requestRender(true);
-						done(result.status);
-					} finally {
-						closeSync(fd);
-					}
+						const fd = openSync(outputFile, "w");
+						try {
+							const result = spawnSync("tuicr", tuicrArgs, {
+								stdio: ["inherit", fd, "inherit"],
+								env: process.env,
+								cwd: targetDir,
+							});
+							tui.start();
+							tui.requestRender(true);
+							exitStatus = result.status;
+							done(result.status);
+						} finally {
+							closeSync(fd);
+						}
 
-					return { render: () => [], invalidate: () => {} };
-				});
-			} catch {
-				// ui.custom can throw on cancel
-			}
+						return { render: () => [], invalidate: () => {} };
+					});
+				} catch {
+					// ui.custom throws when the user cancels
+					cancelled = true;
+				}
 
-			// Read captured instructions, stripping terminal escape sequences
-			const ansiRegex =
-				/(?:\x1b\].*?(?:\x1b\\|\x07)|\x1b[\[()#;?]*[0-9;]*[A-Za-z@`\^\[\]{}|~=><]|\x9b[0-9;]*[A-Za-z@`\^\[\]{}|~=><])/g;
-			let instructions = "";
-			try {
-				instructions = readFileSync(outputFile, "utf-8").replace(ansiRegex, "").trim();
-			} catch {}
-			try {
-				rmSync(outputFile, { force: true });
-			} catch {}
+				// A non-zero or null exit status also signals a user cancel
+				if (cancelled || exitStatus !== 0) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "Review cancelled by user.",
+							},
+						],
+					};
+				}
 
-			if (instructions) {
+				// Read captured instructions, stripping terminal escape sequences
+				const ansiRegex =
+					/(?:\x1b\].*?(?:\x1b\\|\x07)|\x1b[\[()#;?]*[0-9;]*[A-Za-z@`\^\[\]{}|~=><]|\x9b[0-9;]*[A-Za-z@`\^\[\]{}|~=><])/g;
+				let instructions = "";
+				try {
+					instructions = readFileSync(outputFile, "utf-8").replace(ansiRegex, "").trim();
+				} catch {}
+
+				if (instructions) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Review completed:\n${instructions}`,
+							},
+						],
+					};
+				}
+
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Review completed:\n${instructions}`,
+							text: "Review completed. No instructions were exported. The user may paste instructions.",
 						},
 					],
 				};
+			} finally {
+				try {
+					rmSync(outputFile, { force: true });
+				} catch {}
 			}
-
-			return {
-				content: [
-					{
-						type: "text",
-						text: "Review completed. No instructions were exported. The user may paste instructions.",
-					},
-				],
-			};
 		},
 	});
 

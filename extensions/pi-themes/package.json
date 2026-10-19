@@ -1,7 +1,7 @@
 {
   "name": "@aldoborrero/pi-themes",
   "version": "1.0.0",
-  "description": "Theme pack — catppuccin-mocha and lavender themes",
+  "description": "Theme pack — lavender theme",
   "type": "module",
   "files": [
     "themes"

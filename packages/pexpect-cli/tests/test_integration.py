@@ -12,10 +12,18 @@ from pathlib import Path
 
 import pytest
 
-# Use bin wrappers from the project
-BIN_DIR = Path(__file__).parent.parent / "bin"
-PEXPECT_CLI = [str(BIN_DIR / "pexpect-cli")]
-PEXPECT_SERVER = [str(BIN_DIR / "pexpect-server")]
+# Resolve entry points the way real usage does: from PATH via the console
+# scripts declared in [project.scripts]. Mirror client.start_session, which
+# locates pexpect-server with shutil.which.
+def _resolve(name: str) -> str:
+    path = shutil.which(name)
+    if not path:
+        pytest.skip(f"{name} not found on PATH")
+    return path
+
+
+PEXPECT_CLI = [_resolve("pexpect-cli")]
+PEXPECT_SERVER = [_resolve("pexpect-server")]
 
 
 @pytest.fixture
@@ -31,9 +39,9 @@ def isolated_pueue() -> Generator[dict[str, str]]:
         pueue_dir = tmpdir / ".local" / "share" / "pueue"
         pueue_dir.mkdir(parents=True)
 
-        # Set up environment for isolated pueue
+        # Set up environment for isolated pueue. The entry points are resolved
+        # from the inherited PATH (see _resolve), so no extra dir is prepended.
         test_env = os.environ.copy()
-        test_env["PATH"] = f"{BIN_DIR}:{test_env.get('PATH', '')}"
         test_env["PUEUE_CONFIG_DIR"] = str(pueue_dir)
         test_env["HOME"] = str(tmpdir)
         test_env["XDG_CACHE_HOME"] = str(tmpdir / ".cache")
