@@ -3,20 +3,13 @@ import { duckduckgoBackend } from "./providers/duckduckgo.ts";
 import { exaBackend } from "./providers/exa.ts";
 import { firecrawlBackend } from "./providers/firecrawl.ts";
 import { perplexityBackend } from "./providers/perplexity.ts";
+import { resolveApiKey } from "./providers/utils.ts";
 import { searxBackend } from "./providers/searx.ts";
 import { serperBackend } from "./providers/serper.ts";
 import { tavilyBackend } from "./providers/tavily.ts";
+import { BACKEND_NAMES } from "./backend-names.ts";
 
-export const BACKEND_NAMES = {
-  duckduckgo: "duckduckgo",
-  exa: "exa",
-  brave: "brave",
-  searx: "searx",
-  firecrawl: "firecrawl",
-  tavily: "tavily",
-  serper: "serper",
-  perplexity: "perplexity",
-} as const;
+export { BACKEND_NAMES };
 
 export type WebSearchProvider = "auto" | (typeof BACKEND_NAMES)[keyof typeof BACKEND_NAMES];
 export type WebSearchBackendName = Exclude<WebSearchProvider, "auto">;
@@ -51,6 +44,12 @@ export type WebSearchBackend = {
   label: string;
   description: string;
   requiresKey?: boolean;
+  /**
+   * Environment-variable names this backend reads (in order) to resolve its API
+   * key. Shared with the auto-mode usability filter so the filter and the
+   * backend agree on where credentials come from.
+   */
+  envKeys?: string[];
   search(params: WebSearchBackendParams): Promise<{ provider: string; results: SearchResult[] }>;
 };
 
@@ -76,6 +75,17 @@ export function createWebSearchRegistry() {
     enabledOrder(configuredBackends?: Record<string, WebBackendConfig | undefined>) {
       const enabled = order.filter((name) => configuredBackends?.[name]?.enabled === true);
       return enabled.length > 0 ? enabled : order;
+    },
+    /**
+     * Whether a backend can run given the current config and environment.
+     * Keyless backends are always usable; keyed backends need a resolvable key
+     * from either config or one of the backend's declared env-var names — the
+     * same names the backend itself uses to resolve its key.
+     */
+    hasCredentials(name: WebSearchBackendName, config?: WebBackendConfig) {
+      const backend = backends[name];
+      if (backend.requiresKey !== true) return true;
+      return !!resolveApiKey(config, backend.envKeys ?? []);
     },
     run(backend: WebSearchBackendName, params: WebSearchBackendParams) {
       return backends[backend].search(params);

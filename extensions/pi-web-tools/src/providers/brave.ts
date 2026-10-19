@@ -1,7 +1,9 @@
-import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
-import { filterByDomains, resolveApiKey, truncate } from "./utils.ts";
+import { BACKEND_NAMES } from "../backend-names.ts";
+import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { describeHttpError, filterByDomains, resolveApiKey, SEARCH_TIMEOUT_MS, truncate, withTimeout } from "./utils.ts";
 
 const BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
+const BRAVE_ENV_KEYS = ["BRAVE_API_KEY", "SEARCH_BRAVE_API_KEY"];
 
 interface BraveResult {
   title?: string | null;
@@ -33,8 +35,9 @@ export const braveBackend: WebSearchBackend = {
   label: "Brave",
   description: "General web search using Brave Search API; good fallback for broad/current queries.",
   requiresKey: true,
+  envKeys: BRAVE_ENV_KEYS,
   async search(params) {
-    const apiKey = resolveApiKey(params.backendConfig, ["BRAVE_API_KEY", "SEARCH_BRAVE_API_KEY"]);
+    const apiKey = resolveApiKey(params.backendConfig, BRAVE_ENV_KEYS);
     if (!apiKey) {
       throw new Error("BRAVE_API_KEY not set");
     }
@@ -49,11 +52,11 @@ export const braveBackend: WebSearchBackend = {
         Accept: "application/json",
         "X-Subscription-Token": apiKey,
       },
-      signal: params.signal,
+      signal: withTimeout(params.signal, SEARCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      throw new Error(`Brave API error (${response.status}): ${await response.text()}`);
+      throw new Error(await describeHttpError("Brave API error", response));
     }
 
     const data = (await response.json()) as BraveResponse;

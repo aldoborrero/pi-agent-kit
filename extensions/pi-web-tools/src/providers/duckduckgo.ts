@@ -1,5 +1,6 @@
-import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
-import { decodeHtml, filterByDomains, truncate } from "./utils.ts";
+import { BACKEND_NAMES } from "../backend-names.ts";
+import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { decodeHtml, filterByDomains, SEARCH_TIMEOUT_MS, truncate, withTimeout } from "./utils.ts";
 
 
 function unwrapDuckDuckGoUrl(raw: string): string {
@@ -47,7 +48,7 @@ export const duckduckgoBackend: WebSearchBackend = {
         Accept: "text/html,application/xhtml+xml",
         "User-Agent": "Mozilla/5.0 (compatible; pi-web-tools/1.0)",
       },
-      signal: params.signal,
+      signal: withTimeout(params.signal, SEARCH_TIMEOUT_MS),
     });
     if (!response.ok) {
       throw new Error(`DuckDuckGo error (${response.status}): ${response.statusText}`);

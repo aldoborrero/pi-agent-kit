@@ -1,7 +1,9 @@
-import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
-import { filterByDomains, resolveApiKey, truncate } from "./utils.ts";
+import { BACKEND_NAMES } from "../backend-names.ts";
+import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { describeHttpError, filterByDomains, resolveApiKey, SEARCH_TIMEOUT_MS, truncate, withTimeout } from "./utils.ts";
 
 const PERPLEXITY_CHAT_URL = "https://api.perplexity.ai/chat/completions";
+const PERPLEXITY_ENV_KEYS = ["PERPLEXITY_API_KEY", "SEARCH_PERPLEXITY_API_KEY"];
 
 type PerplexityResponse = {
   citations?: string[];
@@ -17,8 +19,9 @@ export const perplexityBackend: WebSearchBackend = {
   label: "Perplexity",
   description: "Perplexity Sonar answer-oriented web research with citations.",
   requiresKey: true,
+  envKeys: PERPLEXITY_ENV_KEYS,
   async search(params) {
-    const apiKey = resolveApiKey(params.backendConfig, ["PERPLEXITY_API_KEY", "SEARCH_PERPLEXITY_API_KEY"]);
+    const apiKey = resolveApiKey(params.backendConfig, PERPLEXITY_ENV_KEYS);
     if (!apiKey) throw new Error("PERPLEXITY_API_KEY not set");
 
     const model = params.backendConfig?.model || (params.searchType === "deep" ? "sonar-pro" : "sonar");
@@ -35,10 +38,10 @@ export const perplexityBackend: WebSearchBackend = {
           { role: "user", content: params.query },
         ],
       }),
-      signal: params.signal,
+      signal: withTimeout(params.signal, SEARCH_TIMEOUT_MS),
     });
     if (!response.ok) {
-      throw new Error(`Perplexity error (${response.status}): ${await response.text()}`);
+      throw new Error(await describeHttpError("Perplexity error", response));
     }
 
     const data = (await response.json()) as PerplexityResponse;

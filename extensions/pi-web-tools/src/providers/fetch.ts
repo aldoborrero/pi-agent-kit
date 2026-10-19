@@ -1,12 +1,12 @@
 import type { WebFetchProvider } from "../fetch-registry.ts";
-import { stripHtmlToText } from "./utils.ts";
+import { FETCH_TIMEOUT_MS, stripHtmlToText, withTimeout } from "./utils.ts";
 
 const JINA_BASE = "https://r.jina.ai";
 
 export async function fetchJina(url: URL, signal?: AbortSignal): Promise<{ text: string; source: string }> {
   const response = await fetch(`${JINA_BASE}/${url.toString()}`, {
     headers: { Accept: "text/markdown" },
-    signal,
+    signal: withTimeout(signal, FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`Jina fetch failed: ${response.status} ${response.statusText}`);
@@ -21,7 +21,7 @@ export async function fetchNative(url: URL, signal?: AbortSignal): Promise<{ tex
       "User-Agent": "pi-agent-kit/1.0 web-tools native-fetch",
     },
     redirect: "follow",
-    signal,
+    signal: withTimeout(signal, FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} ${response.statusText}: ${url.toString()}`);

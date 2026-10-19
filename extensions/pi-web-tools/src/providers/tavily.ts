@@ -1,7 +1,9 @@
-import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
-import { filterByDomains, resolveApiKey, truncate } from "./utils.ts";
+import { BACKEND_NAMES } from "../backend-names.ts";
+import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { describeHttpError, filterByDomains, resolveApiKey, SEARCH_TIMEOUT_MS, truncate, withTimeout } from "./utils.ts";
 
 const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
+const TAVILY_ENV_KEYS = ["TAVILY_API_KEY", "SEARCH_TAVILY_API_KEY"];
 
 type TavilyResult = {
   title?: string;
@@ -20,8 +22,9 @@ export const tavilyBackend: WebSearchBackend = {
   label: "Tavily",
   description: "Agent-oriented structured web search with concise content snippets.",
   requiresKey: true,
+  envKeys: TAVILY_ENV_KEYS,
   async search(params) {
-    const apiKey = resolveApiKey(params.backendConfig, ["TAVILY_API_KEY", "SEARCH_TAVILY_API_KEY"]);
+    const apiKey = resolveApiKey(params.backendConfig, TAVILY_ENV_KEYS);
     if (!apiKey) throw new Error("TAVILY_API_KEY not set");
 
     const response = await fetch(TAVILY_SEARCH_URL, {
@@ -34,10 +37,10 @@ export const tavilyBackend: WebSearchBackend = {
         search_depth: params.searchType === "deep" ? "advanced" : "basic",
         include_raw_content: false,
       }),
-      signal: params.signal,
+      signal: withTimeout(params.signal, SEARCH_TIMEOUT_MS),
     });
     if (!response.ok) {
-      throw new Error(`Tavily error (${response.status}): ${await response.text()}`);
+      throw new Error(await describeHttpError("Tavily error", response));
     }
 
     const data = (await response.json()) as TavilyResponse;

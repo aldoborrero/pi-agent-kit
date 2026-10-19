@@ -1,7 +1,9 @@
-import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
-import { filterByDomains, resolveApiKey, truncate } from "./utils.ts";
+import { BACKEND_NAMES } from "../backend-names.ts";
+import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { describeHttpError, filterByDomains, resolveApiKey, SEARCH_TIMEOUT_MS, truncate, withTimeout } from "./utils.ts";
 
 const SERPER_SEARCH_URL = "https://google.serper.dev/search";
+const SERPER_ENV_KEYS = ["SERPER_API_KEY", "SEARCH_SERPER_API_KEY"];
 
 type SerperOrganicResult = {
   title?: string;
@@ -19,8 +21,9 @@ export const serperBackend: WebSearchBackend = {
   label: "Serper",
   description: "Google-style SERP results via Serper.dev.",
   requiresKey: true,
+  envKeys: SERPER_ENV_KEYS,
   async search(params) {
-    const apiKey = resolveApiKey(params.backendConfig, ["SERPER_API_KEY", "SEARCH_SERPER_API_KEY"]);
+    const apiKey = resolveApiKey(params.backendConfig, SERPER_ENV_KEYS);
     if (!apiKey) throw new Error("SERPER_API_KEY not set");
 
     const response = await fetch(SERPER_SEARCH_URL, {
@@ -30,10 +33,10 @@ export const serperBackend: WebSearchBackend = {
         "X-API-KEY": apiKey,
       },
       body: JSON.stringify({ q: params.query, num: params.numResults }),
-      signal: params.signal,
+      signal: withTimeout(params.signal, SEARCH_TIMEOUT_MS),
     });
     if (!response.ok) {
-      throw new Error(`Serper error (${response.status}): ${await response.text()}`);
+      throw new Error(await describeHttpError("Serper error", response));
     }
 
     const data = (await response.json()) as SerperResponse;

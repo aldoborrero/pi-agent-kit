@@ -4,6 +4,43 @@ import type { SearchResult, WebBackendConfig } from "../search-registry.ts";
 
 const credentialCache = new Map<string, string | undefined>();
 
+/** Default outbound request timeout for web-search backends. */
+export const SEARCH_TIMEOUT_MS = 30_000;
+/** Default outbound request timeout for content fetches (pages can be slow/large). */
+export const FETCH_TIMEOUT_MS = 60_000;
+
+/**
+ * Combine a caller-provided abort signal with a bounded timeout so an outbound
+ * request always terminates even if the caller signal never fires. The caller
+ * signal is still honored (whichever aborts first wins).
+ */
+export function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const signals = [signal, AbortSignal.timeout(timeoutMs)].filter(Boolean) as AbortSignal[];
+  return signals.length === 1 ? signals[0] : AbortSignal.any(signals);
+}
+
+/**
+ * Turn an unsuccessful HTTP response into a compact, safe error message.
+ * Upstream bodies can be large or contain injected/control content, so we
+ * truncate to a short prefix and strip control characters before surfacing
+ * them to the caller (and, ultimately, the LLM).
+ */
+export function scrubUpstreamBody(body: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: intentionally stripping control chars from untrusted upstream bodies
+  return body.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export async function describeHttpError(label: string, response: Response): Promise<string> {
+  let detail = "";
+  try {
+    const body = scrubUpstreamBody(await response.text());
+    if (body) detail = `: ${truncate(body, 200).text}`;
+  } catch {
+    // ignore body read failures; status/statusText is enough
+  }
+  return `${label} (${response.status} ${response.statusText})${detail}`;
+}
+
 export function truncate(text: string, maxChars: number): { text: string; truncated: boolean } {
   if (text.length <= maxChars) return { text, truncated: false };
   return {

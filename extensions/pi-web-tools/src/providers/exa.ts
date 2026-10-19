@@ -1,8 +1,10 @@
-import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
-import { resolveApiKey, truncate } from "./utils.ts";
+import { BACKEND_NAMES } from "../backend-names.ts";
+import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { describeHttpError, FETCH_TIMEOUT_MS, resolveApiKey, SEARCH_TIMEOUT_MS, truncate, withTimeout } from "./utils.ts";
 
 const EXA_API_URL = "https://api.exa.ai/search";
 const EXA_CONTENTS_URL = "https://api.exa.ai/contents";
+const EXA_ENV_KEYS = ["EXA_API_KEY", "SEARCH_EXA_API_KEY"];
 
 interface ExaResult {
   title?: string | null;
@@ -18,7 +20,7 @@ interface ExaResponse {
 }
 
 export async function fetchExaContents(url: URL, signal?: AbortSignal): Promise<{ text: string; source: string }> {
-  const apiKey = resolveApiKey(undefined, ["EXA_API_KEY", "SEARCH_EXA_API_KEY"]);
+  const apiKey = resolveApiKey(undefined, EXA_ENV_KEYS);
   if (!apiKey) throw new Error("EXA_API_KEY not set");
 
   const response = await fetch(EXA_CONTENTS_URL, {
@@ -28,10 +30,10 @@ export async function fetchExaContents(url: URL, signal?: AbortSignal): Promise<
       "x-api-key": apiKey,
     },
     body: JSON.stringify({ urls: [url.toString()], text: true }),
-    signal,
+    signal: withTimeout(signal, FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`Exa contents error (${response.status}): ${await response.text()}`);
+    throw new Error(await describeHttpError("Exa contents error", response));
   }
 
   const data = (await response.json()) as { results?: Array<{ text?: string; title?: string; url?: string }> };
@@ -45,8 +47,9 @@ export const exaBackend: WebSearchBackend = {
   label: "Exa",
   description: "AI-native semantic search; best for documentation, research, and finding high-signal sources.",
   requiresKey: true,
+  envKeys: EXA_ENV_KEYS,
   async search(params) {
-    const apiKey = resolveApiKey(params.backendConfig, ["EXA_API_KEY", "SEARCH_EXA_API_KEY"]);
+    const apiKey = resolveApiKey(params.backendConfig, EXA_ENV_KEYS);
     if (!apiKey) {
       throw new Error("EXA_API_KEY not set");
     }
@@ -64,11 +67,11 @@ export const exaBackend: WebSearchBackend = {
         includeDomains: params.includeDomains,
         excludeDomains: params.excludeDomains,
       }),
-      signal: params.signal,
+      signal: withTimeout(params.signal, SEARCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      throw new Error(`Exa API error (${response.status}): ${await response.text()}`);
+      throw new Error(await describeHttpError("Exa API error", response));
     }
 
     const data = (await response.json()) as ExaResponse;

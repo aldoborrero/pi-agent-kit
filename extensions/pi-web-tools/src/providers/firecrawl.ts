@@ -1,7 +1,9 @@
-import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
-import { filterByDomains, resolveApiKey, truncate } from "./utils.ts";
+import { BACKEND_NAMES } from "../backend-names.ts";
+import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { describeHttpError, FETCH_TIMEOUT_MS, filterByDomains, resolveApiKey, SEARCH_TIMEOUT_MS, truncate, withTimeout } from "./utils.ts";
 
 const FIRECRAWL_API_BASE = "https://api.firecrawl.dev/v2";
+const FIRECRAWL_ENV_KEYS = ["FIRECRAWL_API_KEY", "SEARCH_FIRECRAWL_API_KEY"];
 
 type FirecrawlSearchItem = {
   title?: string;
@@ -37,12 +39,12 @@ function firecrawlHeaders(apiKey?: string): Record<string, string> {
 export async function fetchFirecrawl(url: URL, signal?: AbortSignal): Promise<{ text: string; source: string }> {
   const response = await fetch(`${FIRECRAWL_API_BASE}/scrape`, {
     method: "POST",
-    headers: firecrawlHeaders(resolveApiKey(undefined, ["FIRECRAWL_API_KEY", "SEARCH_FIRECRAWL_API_KEY"])),
+    headers: firecrawlHeaders(resolveApiKey(undefined, FIRECRAWL_ENV_KEYS)),
     body: JSON.stringify({ url: url.toString(), formats: ["markdown"] }),
-    signal,
+    signal: withTimeout(signal, FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
-    throw new Error(`Firecrawl scrape error (${response.status}): ${await response.text()}`);
+    throw new Error(await describeHttpError("Firecrawl scrape error", response));
   }
   const data = (await response.json()) as FirecrawlScrapeResponse;
   const text = data.data?.markdown || data.data?.html || "";
@@ -57,12 +59,12 @@ export const firecrawlBackend: WebSearchBackend = {
   async search(params) {
     const response = await fetch(`${FIRECRAWL_API_BASE}/search`, {
       method: "POST",
-      headers: firecrawlHeaders(resolveApiKey(params.backendConfig, ["FIRECRAWL_API_KEY", "SEARCH_FIRECRAWL_API_KEY"])),
+      headers: firecrawlHeaders(resolveApiKey(params.backendConfig, FIRECRAWL_ENV_KEYS)),
       body: JSON.stringify({ query: params.query, limit: params.numResults }),
-      signal: params.signal,
+      signal: withTimeout(params.signal, SEARCH_TIMEOUT_MS),
     });
     if (!response.ok) {
-      throw new Error(`Firecrawl search error (${response.status}): ${await response.text()}`);
+      throw new Error(await describeHttpError("Firecrawl search error", response));
     }
     const data = (await response.json()) as FirecrawlSearchResponse;
     let results: SearchResult[] = (data.data ?? [])

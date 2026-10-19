@@ -1,8 +1,9 @@
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { BACKEND_NAMES, type SearchResult, type WebSearchBackend } from "../search-registry.ts";
-import { dedupeByUrl, filterByDomains, truncate } from "./utils.ts";
+import { BACKEND_NAMES } from "../backend-names.ts";
+import type { SearchResult, WebSearchBackend } from "../search-registry.ts";
+import { dedupeByUrl, describeHttpError, filterByDomains, SEARCH_TIMEOUT_MS, truncate, withTimeout } from "./utils.ts";
 
 const SEARXNG_CONFIG_PATH = join(homedir(), ".config", "searxng-search", "config.json");
 
@@ -65,11 +66,11 @@ export const searxBackend: WebSearchBackend = {
         Accept: "application/json",
         "User-Agent": "web-tools/1.0 searx",
       },
-      signal: params.signal,
+      signal: withTimeout(params.signal, SEARCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      throw new Error(`SearXNG error (${response.status}): ${await response.text()}`);
+      throw new Error(await describeHttpError("SearXNG error", response));
     }
 
     const data = (await response.json()) as SearxResponse;

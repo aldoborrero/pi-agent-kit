@@ -4,7 +4,7 @@ import { Type } from "@sinclair/typebox";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { once } from "./once.ts";
-import { resolveApiKey, stripHtmlToText } from "./providers/utils.ts";
+import { stripHtmlToText } from "./providers/utils.ts";
 import {
   FETCH_PROVIDER_NAMES,
   FETCH_PROVIDERS,
@@ -18,7 +18,6 @@ import {
   type WebSearchBackendParams,
   type WebSearchProvider,
 } from "./search-registry.ts";
-import { resolveApiKey, stripHtmlToText } from "./providers/utils.ts";
 
 const WEB_TOOLS_SETTINGS_KEY = "webTools";
 const DEFAULT_FETCH_MAX_CHARS = 20_000;
@@ -532,11 +531,7 @@ export default function webToolsExtension(pi: ExtensionAPI) {
           });
         } else {
           const usableBackends = WEB_SEARCH_REGISTRY.enabledOrder(config.backends).filter(
-            (name) => {
-              const backend = WEB_SEARCH_REGISTRY.backends[name];
-              if (backend.requiresKey !== true) return true;
-              return !!resolveApiKey(config.backends?.[name], []);
-            },
+            (name) => WEB_SEARCH_REGISTRY.hasCredentials(name, config.backends?.[name]),
           );
           const errors: string[] = [];
           for (const backend of usableBackends) {
