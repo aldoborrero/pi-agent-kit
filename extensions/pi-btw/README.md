@@ -12,7 +12,7 @@ Like Claude Code's `/btw` command — ask a quick question without tool access, 
 
 Run `/btw` with no arguments to open the dedicated BTW prompt UI.
 
-The answer appears in a bottom overlay instead of the main conversation. The extension calls the current model directly with no tools, using a read-only snapshot of the current conversation plus prior `/btw` turns from this Pi process for follow-up context.
+The answer appears in a bottom overlay instead of the main conversation. The extension calls the current model directly with no tools, using a read-only snapshot of the current conversation plus prior `/btw` turns from this session for follow-up context.
 
 ## Keys
 

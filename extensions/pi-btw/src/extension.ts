@@ -42,7 +42,6 @@ import { once } from "./once.ts";
 
 const BTW_COMMAND_NAME = "btw";
 const BTW_STATE_SYMBOL = Symbol.for("aldoborrero.pi-btw.state");
-const MAX_CROSS_SESSION_HINTS = 10;
 const OVERLAY_MAX_HEIGHT_RATIO = 0.6;
 const SIDE_PAD = "  ";
 const BODY_PAD = "    ";
@@ -120,6 +119,13 @@ function invalidateSnapshot(ctx: ExtensionContext): void {
 	getState().snapshots.delete(getSessionKey(ctx));
 }
 
+function clearSessionState(ctx: ExtensionContext): void {
+	const state = getState();
+	const key = getSessionKey(ctx);
+	state.histories.delete(key);
+	state.snapshots.delete(key);
+}
+
 function branchToMessages(branch: SessionEntry[]): Message[] {
 	const agentMessages = branch
 		.filter((entry): entry is SessionEntry & { type: "message" } => entry.type === "message")
@@ -131,37 +137,12 @@ function readConversationSnapshot(ctx: ExtensionContext): Message[] {
 	return getSnapshot(ctx) ?? branchToMessages(ctx.sessionManager.getBranch() as SessionEntry[]);
 }
 
-function userMessageText(message: UserMessage): string {
-	if (typeof message.content === "string") return message.content;
-	return message.content
-		.filter((content) => content.type === "text")
-		.map((content) => content.text)
-		.join("\n");
-}
-
 function assistantMessageText(message: AssistantMessage): string {
 	return message.content
 		.filter((content) => content.type === "text")
 		.map((content) => content.text)
 		.join("\n")
 		.trim();
-}
-
-function recentQuestionHint(): string {
-	const turns: Array<{ question: string; timestamp: number }> = [];
-	for (const history of getState().histories.values()) {
-		for (const turn of history) {
-			turns.push({ question: userMessageText(turn.userMessage), timestamp: turn.userMessage.timestamp });
-		}
-	}
-	if (turns.length === 0) return "";
-	turns.sort((a, b) => a.timestamp - b.timestamp);
-	const recent = turns.slice(-MAX_CROSS_SESSION_HINTS);
-	return [
-		"",
-		"Recent /btw questions across sessions, oldest first. Treat these as weak context only when relevant:",
-		...recent.map((turn, index) => `${index + 1}. ${turn.question.replace(/\s+/g, " ").slice(0, 200)}`),
-	].join("\n");
 }
 
 function buildBtwMessages(ctx: ExtensionContext, userMessage: UserMessage): Message[] {
@@ -189,7 +170,7 @@ async function executeBtw(ctx: ExtensionCommandContext, question: string, contro
 		const response = await completeSimple(
 			model,
 			{
-				systemPrompt: BTW_SYSTEM_PROMPT + recentQuestionHint(),
+				systemPrompt: BTW_SYSTEM_PROMPT,
 				messages: buildBtwMessages(ctx, userMessage),
 				tools: [],
 			},
@@ -593,32 +574,36 @@ export default function (pi: ExtensionAPI) {
 				});
 
 				const overlay = await controllerReady;
-				const requestPromise = executeBtw(ctx, question, controller);
-				const first = await Promise.race([
-					requestPromise.then((result) => ({ type: "result" as const, result })),
-					overlayPromise.then(() => ({ type: "closed" as const })),
-				]);
+				try {
+					const requestPromise = executeBtw(ctx, question, controller);
+					const first = await Promise.race([
+						requestPromise.then((result) => ({ type: "result" as const, result })),
+						overlayPromise.then(() => ({ type: "closed" as const })),
+					]);
 
-				// If the user dismissed the overlay while the provider request was still
-				// pending, abort and return immediately. Some providers are slow to honor
-				// AbortSignal; awaiting them here can make Pi feel stuck.
-				if (first.type === "closed") {
-					controller.abort();
-					void requestPromise.catch(() => undefined);
-					return;
+					// If the user dismissed the overlay while the provider request was still
+					// pending, abort and return immediately. Some providers are slow to honor
+					// AbortSignal; awaiting them here can make Pi feel stuck.
+					if (first.type === "closed") {
+						controller.abort();
+						void requestPromise.catch(() => undefined);
+						return;
+					}
+
+					const { result } = first;
+					if (result.ok) {
+						overlay.setAnswer(result.answer, result.assistantMessage);
+						getSessionHistory(ctx).push({ userMessage: result.userMessage, assistantMessage: result.assistantMessage });
+					} else if (!("aborted" in result)) {
+						overlay.setError(result.error);
+					} else {
+						return;
+					}
+
+					await overlayPromise;
+				} finally {
+					overlay.dispose();
 				}
-
-				const { result } = first;
-				if (result.ok) {
-					overlay.setAnswer(result.answer, result.assistantMessage);
-					getSessionHistory(ctx).push({ userMessage: result.userMessage, assistantMessage: result.assistantMessage });
-				} else if (!("aborted" in result)) {
-					overlay.setError(result.error);
-				} else {
-					return;
-				}
-
-				await overlayPromise;
 			},
 		});
 
@@ -631,6 +616,10 @@ export default function (pi: ExtensionAPI) {
 
 		pi.on("session_compact", async (_event, ctx) => safeInvalidateSnapshot(ctx));
 		pi.on("session_tree", async (_event, ctx) => safeInvalidateSnapshot(ctx));
+
+		// Drop this session's in-memory BTW history and conversation snapshot so
+		// closed sessions don't accumulate in the process-global state.
+		pi.on("session_shutdown", async (_event, ctx) => clearSessionState(ctx));
 
 		// Clean up messages produced by older pi-btw versions that used custom
 		// conversation messages instead of the separate answer overlay.
