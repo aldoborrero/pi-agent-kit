@@ -12,6 +12,15 @@ export const CHECK_INTERVAL_MS = 1_000;
 /** How often a passive (non-owner) session probes to take over the lock. */
 export const LOCK_PROBE_INTERVAL_MS = 5_000;
 
+/** How often the owning session re-writes the lock's `acquiredAt` heartbeat
+ *  so other sessions can tell the owner is still alive. */
+export const LOCK_HEARTBEAT_INTERVAL_MS = 30_000;
+
+/** A lock whose `acquiredAt` is older than this is considered stale and may be
+ *  reclaimed regardless of PID liveness. Must be safely larger than
+ *  LOCK_HEARTBEAT_INTERVAL_MS so a healthy owner is never reclaimed. */
+export const LOCK_STALE_MS = 120_000;
+
 /** Fallback next-fire delay when cron computation fails. */
 export const FALLBACK_FIRE_DELAY_MS = MS_PER_MINUTE;
 
