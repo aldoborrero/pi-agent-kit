@@ -526,11 +526,18 @@ async function resolveSuggestionModel(
   return { model: undefined, reason: "no available model for suggest" };
 }
 
+function createAbortError(): Error {
+  const error = new Error("Suggest generation aborted");
+  error.name = "AbortError";
+  return error;
+}
+
 async function generateSuggestion(
   ctx: ExtensionContext,
   currentModel: Model<any> | undefined,
   input: string,
   onSession?: (session: { abort(): Promise<void>; dispose(): void }) => void,
+  isCancelled?: () => boolean,
 ): Promise<{
   suggestions: string[];
   rawSuggestion: string | null;
@@ -623,6 +630,12 @@ async function generateSuggestion(
   onSession?.(session);
 
   try {
+    // Cancellation checkpoint: a newer generation or a clearSuggestion() may
+    // have raced past us during the async setup above. Bail out before
+    // spending the model call; runGeneration's catch silences AbortError.
+    if (isCancelled?.()) {
+      throw createAbortError();
+    }
     await session.prompt(input, { expandPromptTemplates: false, source: "interactive" });
     const lastAssistant = [...session.messages].reverse().find(isAssistantMessage);
     const rawSuggestion = lastAssistant ? extractText(lastAssistant) : null;
@@ -705,6 +718,9 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     activeSession = null;
     try {
       await session.abort();
+      // Per pi SDK docs: dispose() aborts remaining work, invalidates contexts
+      // and disconnects the session — required once it's no longer needed.
+      session.dispose();
     } catch {
       // ignore
     }
@@ -890,16 +906,29 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     state.lastAssistantContentPreview = null;
     const generationId = state.generationId + 1;
     state.generationId = generationId;
+    const isCancelled = (): boolean => state.generationId !== generationId || !state.enabled;
+    // Session owned by THIS generation. The guards below ensure a superseded
+    // generation can never null out a newer generation's activeSession slot.
+    let mySession: { abort(): Promise<void>; dispose(): void } | null = null;
 
     try {
       if (state.debug && ctx.hasUI) {
         ctx.ui.notify(`Suggest debug: generating with ${getConfiguredModelName(ctx.cwd)}` + (ctx.model ? ` (current ${ctx.model.provider}/${ctx.model.id})` : ""), "info");
         ctx.ui.notify(`Suggest payload:\n${truncate(input, 500)}`, "info");
       }
-      const result = await generateSuggestion(ctx, ctx.model, input, (session) => {
-        activeSession = session;
-      });
-      activeSession = null;
+      const result = await generateSuggestion(
+        ctx,
+        ctx.model,
+        input,
+        (session) => {
+          mySession = session;
+          // Claim the active slot only while this generation is still current;
+          // never clobber a newer generation's session with null.
+          if (!isCancelled()) activeSession = session;
+        },
+        isCancelled,
+      );
+      if (activeSession === mySession) activeSession = null;
       if (state.generationId !== generationId || !state.enabled) return;
 
       state.lastRawSuggestion = result.rawSuggestion;
@@ -935,7 +964,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       syncEditor();
       renderSuggestion(ctx);
     } catch (error) {
-      activeSession = null;
+      if (activeSession === mySession) activeSession = null;
       if (state.generationId !== generationId) return;
       // Ignore abort errors — these are expected when a newer generation starts
       if (error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"))) {
