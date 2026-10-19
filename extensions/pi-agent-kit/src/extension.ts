@@ -5,9 +5,14 @@
  * manifest; it does not activate npm dependencies automatically. The bundle
  * therefore imports each member package's extension factory and invokes it
  * against the same Pi host.
+ *
+ * `@quintinshaw/pi-dynamic-workflows` and `@bacnh85/pi-subagent` are the
+ * exceptions: the root manifest lists their own extension entries in
+ * `pi.extensions` and Pi loads them next to this aggregator. The workflow
+ * engine's package exports do not expose its entry for import at all.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerAlias from "@aldoborrero/pi-alias/src/extension.ts";
 import registerAstGrep from "@aldoborrero/pi-ast-grep/src/extension.ts";
 import registerBitwarden from "@aldoborrero/pi-bitwarden/src/extension.ts";
@@ -17,86 +22,18 @@ import registerContext from "@aldoborrero/pi-context/src/extension.ts";
 import registerDiff from "@aldoborrero/pi-diff/src/extension.ts";
 import registerDirenv from "@aldoborrero/pi-direnv/src/extension.ts";
 import registerEdit from "@aldoborrero/pi-edit/src/extension.ts";
-import registerGithubSearch from "@aldoborrero/pi-github-search/src/extension.ts";
 import registerFooter from "@aldoborrero/pi-footer/src/extension.ts";
-import registerGitCheckpoint from "@aldoborrero/pi-git-checkpoint/src/extension.ts";
-import registerInlineBash from "@aldoborrero/pi-inline-bash/src/extension.ts";
 import registerLoop from "@aldoborrero/pi-loop/src/extension.ts";
-import registerNotify from "@aldoborrero/pi-notify/src/extension.ts";
-import registerQuestionnaire from "@aldoborrero/pi-questionnaire/src/extension.ts";
+import registerNotify from "@bacnh85/pi-notify/extensions/index.js";
+import registerAskUserQuestion from "@juicesharp/rpiv-ask-user-question";
 import registerSandbox from "@aldoborrero/pi-sandbox/src/extension.ts";
-import registerSkills from "@aldoborrero/pi-skills/src/extension.ts";
-import registerSubagent from "@aldoborrero/pi-subagent/src/extension.ts";
 import registerSuggest from "@aldoborrero/pi-suggest/src/extension.ts";
-import registerTelegram from "@aldoborrero/pi-telegram/src/extension.ts";
 import registerTuicr from "@aldoborrero/pi-tuicr/src/extension.ts";
 import registerUntil from "@aldoborrero/pi-until/src/extension.ts";
 import registerVoice from "@aldoborrero/pi-voice/src/extension.ts";
-import {
-	createEffortState,
-	createWorkflowStorage,
-	createWorkflowTool,
-	installResultDelivery,
-	installTaskPanel,
-	installWorkflowEditor,
-	loadWorkflowSettings,
-	registerAllSavedWorkflows,
-	registerBuiltinWorkflows,
-	registerEffortCommand,
-	registerWorkflowCommands,
-	registerWorkflowModelsCommand,
-	saveWorkflowSettingsForCwd,
-	WorkflowManager,
-} from "@quintinshaw/pi-dynamic-workflows";
+import registerWebAccess from "pi-web-access/dist/index.js";
+import registerRewind from "pi-rewind-hook/index.ts";
 import { once } from "./once.ts";
-
-function registerDynamicWorkflows(pi: ExtensionAPI): void {
-	const cwd = process.cwd();
-	const storage = createWorkflowStorage(cwd);
-	const settings = loadWorkflowSettings({ cwd });
-	const manager = new WorkflowManager({
-		cwd,
-		loadSavedWorkflow: (name) => storage.load(name)?.script,
-		defaultAgentTimeoutMs: settings.defaultAgentTimeoutMs ?? null,
-		concurrency: settings.defaultConcurrency,
-		defaultAgentRetries: settings.defaultAgentRetries,
-	});
-
-	const workflowTool = createWorkflowTool({ cwd, manager, storage });
-	pi.registerTool(workflowTool);
-
-	const effort = createEffortState();
-	registerWorkflowCommands(pi, manager, { storage, cwd, effort });
-	registerWorkflowModelsCommand(pi);
-	registerBuiltinWorkflows(pi, { cwd });
-	registerAllSavedWorkflows(pi, cwd, storage, manager);
-	registerEffortCommand(pi, effort);
-
-	let editorInstalled = false;
-	pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
-		const active = pi.getActiveTools();
-		if (!active.includes(workflowTool.name)) {
-			pi.setActiveTools([...active, workflowTool.name]);
-		}
-		manager.setMainModel(ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined);
-		try {
-			manager.setSessionId(ctx.sessionManager?.getSessionId());
-		} catch {
-			// sessionManager may be unavailable in some contexts — fall back to global history.
-		}
-		installResultDelivery(pi, manager);
-		installTaskPanel(pi, manager, ctx.ui, { storage, cwd, loadSettings: () => loadWorkflowSettings({ cwd }) });
-		if (!editorInstalled) {
-			installWorkflowEditor(pi, ctx.ui, effort, {
-				settingsStore: {
-					load: () => loadWorkflowSettings({ cwd }),
-					save: (nextSettings) => saveWorkflowSettingsForCwd(nextSettings, cwd),
-				},
-			});
-			editorInstalled = true;
-		}
-	});
-}
 
 type Factory = (pi: never) => void;
 
@@ -111,24 +48,26 @@ const MEMBERS: Factory[] = [
 	registerDirenv,
 	registerEdit,
 	registerFooter,
-	registerGithubSearch,
-	registerGitCheckpoint,
-	registerInlineBash,
 	registerLoop,
 	registerNotify,
-	registerQuestionnaire,
+	registerAskUserQuestion,
 	registerSandbox,
-	registerSkills,
-	registerSubagent,
 	registerSuggest,
-	registerTelegram,
 	registerTuicr,
 	registerUntil,
 	registerVoice,
-	registerDynamicWorkflows as Factory,
+	registerWebAccess,
+	registerRewind as Factory,
 ];
 
 export default function (pi: ExtensionAPI): void {
+	// Inside herdr, @bacnh85/pi-subagent runs every delegation as a full `pi`
+	// process in a visible pane instead of in-process. Its `subagent.herdr`
+	// setting is read from `ctx.settings`, which Pi does not provide, so this env
+	// guard is the only switch that takes effect. Default to the in-process
+	// runner; export PI_SUBAGENT_HERDR=auto before starting pi to opt back in.
+	process.env.PI_SUBAGENT_HERDR ??= "off";
+
 	once(pi, "pi-agent-kit", () => {
 		for (const register of MEMBERS) {
 			(register as (pi: ExtensionAPI) => void)(pi);
