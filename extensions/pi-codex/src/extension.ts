@@ -55,7 +55,7 @@ async function runCompanion(
   return {
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
-    exitCode: (result as { exitCode?: number }).exitCode ?? 1,
+    exitCode: result.code ?? 1,
   };
 }
 
