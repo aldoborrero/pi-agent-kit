@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-pi-agent-kit is a toolkit for AI coding agents providing extensions, themes, and specialized agents for pi-coding-agent and related agent runtimes. It ships as a Bun workspace of 19 local `@aldoborrero/pi-*` packages. External packages provide workflows (`@quintinshaw/pi-dynamic-workflows`), subagents (`@bacnh85/pi-subagent`), rewind (`pi-rewind-hook`), structured questions (`@juicesharp/rpiv-ask-user-question`), web access (`pi-web-access`), and notifications (`@bacnh85/pi-notify`).
+pi-agent-kit is a toolkit for AI coding agents providing extensions, themes, and specialized agents for pi-coding-agent and related agent runtimes. It ships as a Bun workspace of 18 local `@aldoborrero/pi-*` packages. External packages provide workflows (`@quintinshaw/pi-dynamic-workflows`), subagents (`@bacnh85/pi-subagent`), rewind (`pi-rewind-hook`), structured questions (`@juicesharp/rpiv-ask-user-question`), web access (`pi-web-access`), notifications (`@bacnh85/pi-notify`), side conversations (`pi-btw`), tracing (`pi-phoenix`), and long-term memory (`@luxusai/pi-hindsight`).
 
 ## Directory Structure
 
 ```
 agent-kit/
 ├── agents/           # Agent definitions (explore, plan, build, review, debug, brainstorm)
-├── extensions/       # 19 TypeScript packages, each an @aldoborrero/pi-* workspace package
+├── extensions/       # 18 TypeScript packages, each an @aldoborrero/pi-* workspace package
 │   ├── pi-agent-kit/ # Aggregator — imports every member extension + pi-rewind-hook
 │   ├── pi-common/    # Shared helpers (createUiColors, etc.) — no _shared/ dir exists
 │   └── ...           # see "Extensions Quick Reference" below
@@ -53,6 +53,13 @@ direnv allow
 | `PI_SUGGEST_MODEL` | pi-suggest | Override the next-prompt suggestion model |
 | `PI_UNTIL_MAX_ITERATIONS` | pi-until | Cap iterations for the `/until` loop |
 | `RBW_TIMEOUT_MS` / `RBW_UNLOCK_TIMEOUT_MS` | pi-bitwarden | rbw command / unlock timeouts |
+| `PI_PHOENIX_ENABLE` | pi-phoenix | Opt-in tracing — off by default in this kit; `true` to enable |
+| `PHOENIX_COLLECTOR_ENDPOINT` | pi-phoenix | Phoenix server URL (default `http://localhost:6006`) |
+| `PHOENIX_API_KEY` | pi-phoenix | API key for Phoenix Cloud |
+| `PI_PHOENIX_PROJECT` | pi-phoenix | Project name (defaults to repo/cwd basename) |
+| `PI_HINDSIGHT_ENABLED` | pi-hindsight | Opt-in memory — off by default in this kit; `true` to enable |
+| `HINDSIGHT_BASE_URL` | pi-hindsight | Hindsight server base URL |
+| `HINDSIGHT_API_TOKEN` / `HINDSIGHT_API_KEY` | pi-hindsight | Hindsight API credentials |
 
 ## Extensions Quick Reference
 
@@ -68,7 +75,7 @@ direnv allow
 | `/bw`, `/rbw` | pi-bitwarden | Bitwarden vault management via rbw |
 | `/sandbox [on\|off]` | pi-sandbox | Toggle OS-level bash sandboxing or show status |
 | `/context` | pi-context | Show loaded context overview (tokens, extensions, cost) |
-| `/btw <question>` | pi-btw | Ephemeral side question in a bottom overlay (no tools, no context pollution) |
+| `/btw <question>` | pi-btw | Parallel side conversation in a real sub-session with tool access (`/side` alias; `/btw:new`, `/btw:tangent`, `/btw:ask`, `/btw:clear`, `/btw:model`, `/btw:inject`, `/btw:summarize`) |
 | `/codex [setup\|review\|adversarial-review\|rescue\|status\|result\|cancel]` | pi-codex | OpenAI Codex integration |
 | `/exit` | pi-alias | Exit pi cleanly (alias for `/quit`) |
 | `/clear` | pi-alias | Clear conversation and start fresh (alias for `/new`) |
@@ -93,6 +100,7 @@ direnv allow
 | `tuicr` | pi-tuicr | Interactive code review with feedback capture |
 | `edit` | pi-edit | Replaces the built-in edit tool (single, `multi` batch, and Codex-style patch modes) |
 | `bw_get` / `bw_list` | pi-bitwarden | Secure vault access via rbw (passwords masked, require confirmation) |
+| `hindsight_*` | pi-hindsight | Long-term memory tools (`hindsight_recall`, `hindsight_retain`, `hindsight_reflect`, `hindsight_status`, …) |
 | `signal_loop_success` | pi-until | Signal that an `/until` loop's condition has been met |
 | `bash` (sandboxed) | pi-sandbox | Re-registers the built-in bash tool wrapped in OS-level sandboxing when enabled |
 | `workflow`, `workflow_control` | pi-dynamic-workflows | Run and control dynamic workflows (registered by `@quintinshaw/pi-dynamic-workflows`) |
@@ -106,12 +114,14 @@ direnv allow
 | pi-suggest | Ghost-text next-prompt suggestions after each agent turn |
 | pi-footer | Rich adaptive status bar (git branch, context usage, cost); registers a `footer-two-line` flag |
 | pi-themes | Ships the `lavender` theme (`extensions/pi-themes/themes`) |
+| pi-phoenix | OpenTelemetry tracing to Arize Phoenix — off by default (`PI_PHOENIX_ENABLE=true` to enable) |
+| pi-hindsight | Hindsight-backed long-term memory — off by default (`PI_HINDSIGHT_ENABLED=true` to enable) |
 | pi-common | Shared UI helpers (`createUiColors`, color utilities) consumed by other extensions |
 
 ### External (npm)
 
 Question/web/notify migration and configuration: [plugin-migration.md](docs/plugin-migration.md).
-The local `pi-questionnaire`, `pi-web-tools`, and `pi-notify` sources were removed from the
+The local `pi-questionnaire`, `pi-web-tools`, `pi-notify`, and `pi-btw` sources were removed from the
 workspace when the upstream replacements were adopted; do not re-add them alongside those.
 
 | Package | Description |
@@ -120,6 +130,9 @@ workspace when the upstream replacements were adopted; do not re-add them alongs
 | `@bacnh85/pi-subagent` | In-process `subagent` tool (single, parallel, chain with `{previous}`) plus `/subagent` and `/agent`. Loaded from its own extension entry through root `pi.extensions`. The aggregator defaults `PI_SUBAGENT_HERDR` to `off` so delegation stays in-process inside herdr |
 | `@juicesharp/rpiv-ask-user-question` | Structured questions; loaded through the aggregator |
 | `pi-web-access` | Search and extraction; loaded through the aggregator |
+| `pi-btw` | Parallel side conversations via `/btw` in a real sub-session; loaded through the aggregator |
+| `pi-phoenix` | Phoenix tracing; loaded through the aggregator |
+| `@luxusai/pi-hindsight` | Durable long-term memory; loaded through the aggregator |
 | `@bacnh85/pi-notify` | Native notifications; loaded through the aggregator |
 | `pi-rewind-hook` | File-state rewind points per prompt and assistant turn, restorable from `/fork` and `/tree`; loaded via the pi-agent-kit aggregator. Pinned to the upstream commit that binds each snapshot to its own prompt (nicobailon/pi-rewind-hook#19) until a release includes it |
 

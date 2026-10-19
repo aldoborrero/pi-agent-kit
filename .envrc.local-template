@@ -28,6 +28,23 @@
 # export SEARXNG_BASE_URL=https://searx.orbiit.xyz
 
 # ---------------------------------------------------------------------------
+# Phoenix tracing (optional — OpenTelemetry spans to Arize Phoenix)
+# ---------------------------------------------------------------------------
+
+# export PI_PHOENIX_ENABLE=true    # opt-in: this kit ships tracing off by default
+# export PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006
+# export PHOENIX_API_KEY=          # only for Phoenix Cloud
+# export PI_PHOENIX_PROJECT=       # project name (defaults to repo/cwd basename)
+
+# ---------------------------------------------------------------------------
+# Hindsight long-term memory (optional — requires a Hindsight server)
+# ---------------------------------------------------------------------------
+
+# export PI_HINDSIGHT_ENABLED=true # opt-in: this kit ships memory off by default
+# export HINDSIGHT_BASE_URL=        # e.g. http://localhost:8000
+# export HINDSIGHT_API_TOKEN=
+
+# ---------------------------------------------------------------------------
 # Oracle suggestion model (optional — defaults to current session model)
 # ---------------------------------------------------------------------------
 

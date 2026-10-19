@@ -49,6 +49,8 @@ All extensions follow the same structure:
 | [`pi-context`](extensions/pi-context) | `/context` TUI — token usage, extensions, skills, session cost |
 | [`pi-alias`](extensions/pi-alias) | `/exit` (alias for `/quit`) and `/clear` (alias for `/new`) commands |
 | [`pi-suggest`](extensions/pi-suggest) | Next-prompt prediction — ghost text suggestions after each turn |
+| [`pi-btw`](https://github.com/dbachelder/pi-btw) | External — parallel `/btw` side conversations in a real sub-session with tool access |
+| [`@luxusai/pi-hindsight`](https://www.npmjs.com/package/@luxusai/pi-hindsight) | External — durable Hindsight-backed long-term memory (`hindsight_*` tools) |
 
 ### Workflow & Automation
 
@@ -76,13 +78,15 @@ package, loaded from its own extension entry through the root `pi.extensions` ma
 | [`pi-direnv`](extensions/pi-direnv) | Auto-load direnv environment variables |
 | [`pi-codex`](extensions/pi-codex) | OpenAI Codex integration — review and rescue tasks |
 | [`@bacnh85/pi-notify`](https://github.com/bacnh85/pi-extensions/tree/main/pi-notify) | External — desktop notifications for completion, errors, and questions |
+| [`pi-phoenix`](https://github.com/philipbjorge/pi-phoenix) | External — OpenTelemetry tracing to Arize Phoenix |
+
+> This kit disables pi-phoenix tracing and pi-hindsight memory by default. Opt in with `PI_PHOENIX_ENABLE=true` and `PI_HINDSIGHT_ENABLED=true`.
 
 ### Input & Voice
 
 | Extension | Description |
 |-----------|-------------|
 | [`pi-voice`](extensions/pi-voice) | Speech-to-text — Groq, OpenAI, or local Whisper |
-| [`pi-btw`](extensions/pi-btw) | Ephemeral side questions without tool access |
 
 ### UI
 
