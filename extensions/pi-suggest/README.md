@@ -30,6 +30,19 @@ Generates a short “likely next user prompt” after each completed agent run a
   - `/suggest model clear`
   - `/suggest model provider/model-id`
 
+## Cost
+
+Suggest is enabled by default and issues one extra (small) model call per **new** turn
+to predict the next prompt. To keep this cheap:
+
+- Repeated `agent_end` events for the same conversation state are skipped (no call).
+- Rapid successive turns are debounced/throttled into at most one call.
+- Point Suggest at a cheaper/faster model with `PI_SUGGEST_MODEL` (see
+  [Environment variables](#environment-variables)) or the `suggest` settings key,
+  e.g. `PI_SUGGEST_MODEL=provider/cheap-model-id`.
+
+To turn suggestions off entirely, use `/suggest off`.
+
 ## Model selection
 
 Suggest model selection can be configured via project/global settings or environment variables.

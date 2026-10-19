@@ -25,6 +25,10 @@ const STATUS_ID = "suggest";
 const MAX_CONTEXT_MESSAGES = 6;
 const MAX_ASSISTANT_CHARS = 3000;
 const MAX_USER_CHARS = 1200;
+// Coalesce rapid successive agent_end events into a single generation, and
+// enforce a floor between generations so bursts don't each spawn a model call.
+const SUGGEST_DEBOUNCE_MS = 400;
+const SUGGEST_MIN_INTERVAL_MS = 1500;
 
 const SUGGEST_SYSTEM_PROMPT = `You predict what the user will most likely type next in a coding assistant.
 
@@ -684,6 +688,17 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   let activeSession: { abort(): Promise<void>; dispose(): void } | null = null;
   let unregisterEditorDecorator: (() => void) | undefined;
 
+  // Debounce/throttle state for suggestion generation.
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastGenerationStartedAt = 0;
+
+  function cancelPendingGeneration(): void {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+  }
+
   async function abortActiveSession(): Promise<void> {
     if (!activeSession) return;
     const session = activeSession;
@@ -742,6 +757,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   }
 
   function clearSuggestion(ctx?: ExtensionContext, options?: { preserveDiagnostics?: boolean }): void {
+    cancelPendingGeneration();
     void abortActiveSession();
     if (ctx?.hasUI) lastUIContext = ctx;
     state.suggestions = [];
@@ -835,6 +851,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async () => {
+    cancelPendingGeneration();
     await abortActiveSession();
     unregisterEditorDecorator?.();
     unregisterEditorDecorator = undefined;
@@ -853,34 +870,11 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     return null;
   }
 
-  pi.on("agent_end", async (event, ctx) => {
-    if (!ctx.cwd) {
-      clearSuggestion(ctx);
-      return;
-    }
-    const suppressReason = shouldSuppressGeneration(ctx);
-    if (suppressReason) {
-      clearSuggestion(ctx);
-      return;
-    }
-
-    const messages = event.messages as AgentMessage[];
-    const assistantTurnCount = messages.filter(isAssistantMessage).length;
-    if (assistantTurnCount < 1) {
-      clearSuggestion(ctx);
-      return;
-    }
-
-    const turnKey = buildTurnKey(messages);
-    const input = buildSuggestionInput(messages, ctx.cwd ?? process.cwd());
-    if (!input) {
-      clearSuggestion(ctx);
-      return;
-    }
-
+  async function runGeneration(ctx: ExtensionContext, input: string, turnKey: string): Promise<void> {
     // Abort any in-flight generation before starting a new one
     await abortActiveSession();
 
+    lastGenerationStartedAt = Date.now();
     state.generating = true;
     state.lastError = null;
     state.lastRawSuggestion = null;
@@ -958,6 +952,57 @@ export default function suggestExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(`Suggest failed: ${state.lastError}`, "warning");
       }
     }
+  }
+
+  pi.on("agent_end", async (event, ctx) => {
+    if (!ctx.cwd) {
+      clearSuggestion(ctx);
+      return;
+    }
+    const suppressReason = shouldSuppressGeneration(ctx);
+    if (suppressReason) {
+      clearSuggestion(ctx);
+      return;
+    }
+
+    const messages = event.messages as AgentMessage[];
+    const assistantTurnCount = messages.filter(isAssistantMessage).length;
+    if (assistantTurnCount < 1) {
+      clearSuggestion(ctx);
+      return;
+    }
+
+    const turnKey = buildTurnKey(messages);
+
+    // Short-circuit: the conversation hasn't changed since the suggestion we
+    // already have (or are about to produce), so skip a redundant model call.
+    if (turnKey === state.sourceTurnKey) {
+      if (state.debug && ctx.hasUI) {
+        ctx.ui.notify("Suggest debug: skipping generation (turn unchanged)", "info");
+      }
+      return;
+    }
+
+    const input = buildSuggestionInput(messages, ctx.cwd ?? process.cwd());
+    if (!input) {
+      clearSuggestion(ctx);
+      return;
+    }
+
+    // Debounce/throttle: coalesce rapid successive agent_end events and enforce
+    // a minimum interval between generations. A superseded pending generation is
+    // cancelled here; a superseded in-flight one is aborted inside runGeneration.
+    cancelPendingGeneration();
+    // Record the target turn now so repeated agent_end events for the same turn
+    // short-circuit above instead of stacking timers.
+    state.sourceTurnKey = turnKey;
+    const sinceLast = Date.now() - lastGenerationStartedAt;
+    const delay = Math.max(SUGGEST_DEBOUNCE_MS, SUGGEST_MIN_INTERVAL_MS - sinceLast);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      if (!state.enabled || state.sourceTurnKey !== turnKey) return;
+      void runGeneration(ctx, input, turnKey);
+    }, delay);
   });
 
   pi.registerCommand("suggest", {
