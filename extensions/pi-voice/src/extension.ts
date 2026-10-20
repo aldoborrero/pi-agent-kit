@@ -252,7 +252,7 @@ export default function voiceExtension(pi: ExtensionAPI) {
 					return false;
 				}
 				recorder = fallback;
-				showError(ctx, "Native mic capture failed — using external recorder (arecord/sox/ffmpeg).");
+				showError(ctx, `Native mic capture failed (${err instanceof Error ? err.message : String(err)}) — using external recorder (arecord/sox/ffmpeg).`);
 			} else {
 				state = "idle";
 				showError(ctx, `Recording failed: ${err instanceof Error ? err.message : String(err)}`);
