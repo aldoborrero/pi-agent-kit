@@ -158,6 +158,7 @@ Shared UI helpers live in the `extensions/pi-common` workspace package — there
 `extensions/pi-natives` wraps the Rust N-API core of the oh-my-pi fork (MIT) and exposes a shared
 loader other extensions consume. Rules that keep this sane:
 
+- **Integration ledger**: `docs/natives-shortlist.md` records what was integrated, what was deferred (with rationale), and the accepted gaps — check it before proposing a new native-backed feature
 - **Load natives only via the shared loader**: `import { loadNatives } from "@aldoborrero/pi-natives/src/natives.ts"` — top-level `const natives = await loadNatives()` (pi loads extension files with Bun/jiti, so top-level await is fine). Never import `@oh-my-pi/pi-natives` directly in another package
 - **Pin the version exactly** (`"18.12.3"`, no `^`): the package's API moves in lockstep with the oh-my-pi fork; ranges let breaking changes slip in silently
 - **Graceful degradation is mandatory**: every native-backed tool must fall back (JS implementation, CLI, or skip registration) when the addon is unavailable, and surface a diagnostic on `session_start` — see `pi-natives/src/extension.ts` for the pattern

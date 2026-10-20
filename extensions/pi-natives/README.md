@@ -76,8 +76,9 @@ shutdownNativeShellSessions();
 Session model: one persistent session per process (shell state survives across
 tool calls), one-shot sessions for parallel calls, quarantine on
 timeout/abort/error. The bash dialect caveat applies — brush is POSIX sh with
-partial bash support — which is why pi-sandbox ships this backend **opt-in**
-(`nativeShell.enabled: true` in settings, or `PI_SHELL_NATIVE=1`).
+partial bash support — which is why the known gaps are documented (see the pi-sandbox README).
+This backend is the kit's **default** for the bash tool; opt out with
+`nativeShell.enabled: false` in settings or `PI_SHELL_NATIVE=0`.
 
 ### VFS: mount `scheme://` filesystems inside the shell
 

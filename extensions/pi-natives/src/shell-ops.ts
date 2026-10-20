@@ -106,7 +106,17 @@ export function createNativeShellOperations(
 			let broken = false;
 			try {
 				const result = await shell.run(
-					{ command, cwd, env, timeoutMs: timeout, signal, filesystem: buildShellFilesystem() },
+					{
+						command,
+						cwd,
+						env,
+						// SDK contract: `timeout` is in SECONDS (the local ops resolve
+						// to ms themselves). Brush: omit `timeoutMs` entirely for "no
+						// timeout" — an explicit 0 means "timeout immediately".
+						...(timeout === undefined ? {} : { timeoutMs: Math.round(timeout * 1000) }),
+						signal,
+						filesystem: buildShellFilesystem(),
+					},
 					(error, chunk) => {
 						if (error || !acceptingChunks) return;
 						onData(Buffer.from(chunk, "utf8"));
@@ -120,7 +130,8 @@ export function createNativeShellOperations(
 				if (result.timedOut) {
 					acceptingChunks = false;
 					broken = true;
-					const secs = Math.max(1, Math.ceil((timeout ?? 0) / 1000));
+					// The SDK tool parses seconds out of this message.
+					const secs = Math.max(1, Math.ceil(timeout ?? 0));
 					throw new Error(`timeout:${secs}`);
 				}
 				if (result.cancelled || signal?.aborted) {
