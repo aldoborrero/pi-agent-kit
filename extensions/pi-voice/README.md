@@ -80,6 +80,11 @@ Persisted config takes priority over env vars.
 
 ## System Dependencies
 
+**Audio capture is native by default**: microphone capture runs through `@oh-my-pi/pi-natives`
+(Rust/cpal, bundled with this kit) — no external binaries needed on Linux or macOS.
+
+Fallbacks, used only when the native addon is unavailable (e.g. musl/Alpine):
+
 **Linux:** `arecord` (from `alsa-utils`), `sox`/`rec`, or `ffmpeg`
 **macOS:** `sox`/`rec` or `ffmpeg`
 
