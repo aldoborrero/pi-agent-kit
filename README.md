@@ -59,7 +59,7 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 
 | Extension | Source | Description |
 |-----------|--------|-------------|
-| [`pi-ast-grep`](extensions/pi-ast-grep) | Mine | Structural code search using AST patterns |
+| [`pi-natives`](extensions/pi-natives) | Mine | Rust-accelerated tools via `@oh-my-pi/pi-natives` — native `grep` (ripgrep engine), `ast_grep` (pattern mode + CLI fallback for rule/inspect), `pdf` |
 | [`pi-edit`](extensions/pi-edit) | Mine | Enhanced `edit` tool — single, batch (`multi`), and Codex-style patch modes |
 | [`pi-diff`](extensions/pi-diff) | Mine | Structured diff rendering |
 | [`pi-tuicr`](extensions/pi-tuicr) | Mine | Interactive code review launcher |

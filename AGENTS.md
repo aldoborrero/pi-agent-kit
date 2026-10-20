@@ -94,7 +94,9 @@ direnv allow
 |------|-----------|-------------|
 | `web_search` | pi-web-access | Web search across configured providers; schema differs from the retired local tool |
 | `fetch_content` | pi-web-access | Extract pages, PDFs, repositories, and videos |
-| `ast_grep` | pi-ast-grep | Structural code search via AST patterns |
+| `ast_grep` | pi-natives | Structural code search via AST patterns — native pattern mode (Rust), CLI fallback for rule/inspect |
+| `grep` | pi-natives | Content search via native ripgrep engine — replaces the JS built-in |
+| `pdf` | pi-natives | Extract local PDFs as Markdown (native Rust, OCR page classification) |
 | `subagent` | @bacnh85/pi-subagent | Delegate tasks to specialized agents (single, parallel, chain) |
 | `ask_user_question` | @juicesharp/rpiv-ask-user-question | Structured questions with multi-select, previews, and notes |
 | `tuicr` | pi-tuicr | Interactive code review with feedback capture |
