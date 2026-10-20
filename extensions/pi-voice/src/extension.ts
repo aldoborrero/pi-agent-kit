@@ -248,7 +248,15 @@ export default function voiceExtension(pi: ExtensionAPI) {
 					});
 				} catch (fallbackErr) {
 					state = "idle";
-					showError(ctx, `Recording failed: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+					let msg = `Recording failed: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`;
+					// Both capture paths failed. If the native error points at missing
+					// audio backends (typical NixOS: no global loader path for
+					// libasound/libpulse), give the user the concrete fix.
+					if (process.platform === "linux" && /libpulse|libasound|capture backend/i.test(String(err))) {
+						msg += "\n\nNixOS fix: add `programs.nix-ld.libraries = [ pkgs.alsa-lib pkgs.libpulseaudio ];` to configuration.nix, or export LD_LIBRARY_PATH with both lib dirs (see pi-voice README).";
+						msg += "\nOther distros fix: install arecord (alsa-utils), sox, or ffmpeg.";
+					}
+					showError(ctx, msg);
 					return false;
 				}
 				recorder = fallback;
