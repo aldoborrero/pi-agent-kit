@@ -11,11 +11,15 @@ agent-kit/
 ├── agents/           # Agent definitions (explore, plan, build, review, debug, brainstorm)
 ├── extensions/       # 18 TypeScript packages, each an @aldoborrero/pi-* workspace package
 │   ├── pi-agent-kit/ # Aggregator — imports every member extension + pi-rewind-hook
+│   ├── pi-natives/   # Rust-accelerated tools + shared native loader (@oh-my-pi/pi-natives)
 │   ├── pi-common/    # Shared helpers (createUiColors, etc.) — no _shared/ dir exists
 │   └── ...           # see "Extensions Quick Reference" below
 ├── prompts/          # Prompt templates (brainstorm, debug, explore, full-cycle, review)
 ├── themes/           # Provided by extensions/pi-themes/themes (lavender) + @xynogen/pix-themes
-└── packages/         # Python packages with Nix build wrappers (pexpect-cli, searxng-search)
+├── docs/             # Migration notes, audits
+├── assets/           # README banner (SVG)
+├── packages/         # Python packages with Nix build wrappers (pexpect-cli, searxng-search)
+└── .worktrees/       # gitignored — git worktrees for parallel work (see Workflow)
 ```
 
 Root `package.json` lists three entries in `pi.extensions`: `extensions/pi-agent-kit` and the
@@ -149,6 +153,18 @@ Shared UI helpers live in the `extensions/pi-common` workspace package — there
 |--------|-------------|
 | `createUiColors(theme)` | Semantic color wrappers (primary, meta, warning, danger…). Prefer this over raw `theme.fg()`. |
 
+### Rust Natives (`@oh-my-pi/pi-natives`)
+
+`extensions/pi-natives` wraps the Rust N-API core of the oh-my-pi fork (MIT) and exposes a shared
+loader other extensions consume. Rules that keep this sane:
+
+- **Load natives only via the shared loader**: `import { loadNatives } from "@aldoborrero/pi-natives/src/natives.ts"` — top-level `const natives = await loadNatives()` (pi loads extension files with Bun/jiti, so top-level await is fine). Never import `@oh-my-pi/pi-natives` directly in another package
+- **Pin the version exactly** (`"18.12.3"`, no `^`): the package's API moves in lockstep with the oh-my-pi fork; ranges let breaking changes slip in silently
+- **Graceful degradation is mandatory**: every native-backed tool must fall back (JS implementation, CLI, or skip registration) when the addon is unavailable, and surface a diagnostic on `session_start` — see `pi-natives/src/extension.ts` for the pattern
+- **Binaries are prebuilt** npm `optionalDependencies` (6 platforms; glibc-only, no musl; Bun ≥ 1.3.14 — pi 1.3 embeds 1.4.2). Never install with `--no-optional`
+- **Do not compile the crate ourselves** — ~181k LOC on a nightly toolchain across a 6-platform matrix for 3 functions. Escape hatches if ever needed: `PI_NATIVES_DIR` env override, or vendorize the crate if upstream stops publishing
+- The `rule`/`inspect` modes of `ast_grep` require the [ast-grep CLI](https://ast-grep.github.io) regardless of native availability
+
 ### Pi Extensions (`extensions/`)
 
 - Each extension is an `@aldoborrero/pi-*` workspace package that registers tools/commands with pi-coding-agent
@@ -156,6 +172,13 @@ Shared UI helpers live in the `extensions/pi-common` workspace package — there
 - Each extension has its own directory with a `README.md` and `package.json`
 - **If an extension directory has multiple `.ts` files** (including `.d.ts` shims), the `package.json` must point `pi.extensions` at the entry file. Without this, pi scans the directory and tries to load every `.ts` file as an extension.
 - The `pi-agent-kit` aggregator imports every member extension's factory and invokes it against the same Pi host; the root `pi.extensions` lists `extensions/pi-agent-kit` plus the `@bacnh85/pi-subagent` and `@quintinshaw/pi-dynamic-workflows` entries.
+
+### Idempotency (`once.ts`)
+
+The aggregator invokes every member factory against the same Pi host, and a standalone install
+makes Pi invoke the factory again. Each extension guards activation with the `once.ts` helper
+(keyed on the `pi` instance): same instance → skip, new instance (after `/new`, `/reload`) →
+re-register. Every extension copies this file; keep them in sync.
 
 ### Agents (`agents/`)
 
@@ -173,7 +196,8 @@ Shared UI helpers live in the `extensions/pi-common` workspace package — there
 
 ### Workflow: branches, PRs, and worktrees
 
-- **Work on feature branches, merge via PRs.** Never push directly to `main` — every change (even small ones) goes through a pull request so it gets reviewed and CI-checked. Name branches `feat/…`, `fix/…`, or `docs/…`
+- **`main` is protected by a GitHub ruleset** (`main-requires-pr`): direct pushes are rejected for everyone, including the repo owner. Do not attempt `git push origin HEAD:main` — it will fail with `GH013: Repository rule violations`. Merge PRs with `gh pr merge` (no review approvals required — self-merge is allowed); force-pushes are blocked and history is linear
+- **Work on feature branches, merge via PRs.** Every change (even small ones) goes through a pull request so it gets reviewed and CI-checked. Name branches `feat/…`, `fix/…`, or `docs/…`
 - **Use git worktrees under `.worktrees/`** to keep parallel work isolated (e.g. a PR branch while `main` stays checked out in the main directory). `.worktrees/` is gitignored. Create with:
 
   ```bash
@@ -194,7 +218,8 @@ nix fmt       # Format code
 ### Testing
 
 ```bash
-bun test      # Run the workspace test suite (Bun's built-in runner discovers *.test.ts)
+bun test                        # Run the workspace test suite (Bun's built-in runner discovers *.test.ts)
+bun test extensions/pi-natives  # Scoped run for one extension (much faster during iteration)
 ```
 
 ### Installing
@@ -296,9 +321,19 @@ pi.on("tool_result", async (event, ctx) => {
 fs.watch(join(cwd, ".envrc"), () => scheduleReload());
 ```
 
-### 2. Prefer Simple Solutions Over Tool Replacement
+### 2. Replace Tools Deliberately — and Preserve the Contract
 
-Hook into events instead of replacing tools. Replacing built-in tools (edit, bash, grep) bypasses pi's safeguards: file mutation queue, fuzzy matching, BOM handling, line ending normalization, multiple occurrence detection.
+Hooking events beats replacing tools when you only need side effects. When you DO replace a
+built-in (`pi-edit` replaces `edit`, `pi-sandbox` wraps `bash`, `pi-natives` replaces `grep`),
+it is a deliberate product decision — do it so the model cannot tell the difference:
+
+- Keep the parameter contract identical (same schema, same semantics)
+- Preserve the safeguards the built-in had (pi-edit keeps the mutation queue, fuzzy matching,
+  BOM/line-ending handling; pi-natives `ast_grep` keeps the CLI path for rule/inspect modes)
+- Fall back to the built-in behavior when the replacement cannot run
+
+Registation note: registering a tool with the same name as a built-in overrides it; the same
+name from two extensions is a fatal load conflict.
 
 ### 3. Multi-file Extensions Need a package.json
 
@@ -382,7 +417,7 @@ Or manage it interactively via `/suggest`.
 1. **Think about the actual goal** — don't fixate on wrapping/intercepting
 2. **Use `ctx.cwd` for paths** — never `process.cwd()`
 3. **Use events for side effects** — `session_start` for init, `fs.watch` for file reactions
-4. **Only replace tools when necessary** — safeguards are lost
+4. **Replace tools deliberately** — same contract, same safeguards, documented fallback (see Key Learning #2)
 5. **Inject messages, don't replace systemPrompt** — append via `before_agent_start` message
 6. **Use `context` for message manipulation** — filter, prune, augment before LLM calls
 7. **Clean up on shutdown** — kill child processes, clear intervals, close connections

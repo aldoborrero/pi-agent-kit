@@ -45,10 +45,10 @@
 # export HINDSIGHT_API_TOKEN=
 
 # ---------------------------------------------------------------------------
-# Oracle suggestion model (optional — defaults to current session model)
+# Suggest suggestion model (optional — defaults to current session model)
 # ---------------------------------------------------------------------------
 
-# export PI_ORACLE_MODEL=        # e.g. anthropic/claude-3-5-haiku-20241022
+# export PI_SUGGEST_MODEL=      # e.g. groq/openai/gpt-oss-20b (fast + cheap)
 
 # ---------------------------------------------------------------------------
 # Groq as a model provider (optional — separate from voice)
