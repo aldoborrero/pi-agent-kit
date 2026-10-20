@@ -20,6 +20,8 @@ export class SuggestEditor implements EditorComponent {
   private onAcceptSuggestion?: () => void;
   private onSelectSuggestion?: ((index: number) => void) | undefined;
   private onDismissSuggestion?: () => void;
+  private onCancelGeneration?: () => void;
+  private generating = false;
 
   // Expose CustomEditor's duck-typed app-keybinding surface so the host can wire
   // global actions even though this editor is now a wrapper.
@@ -151,6 +153,18 @@ export class SuggestEditor implements EditorComponent {
     this.onDismissSuggestion = handler;
   }
 
+  setOnCancelGeneration(handler: (() => void) | undefined): void {
+    this.onCancelGeneration = handler;
+  }
+
+  /**
+   * While a suggestion is generating, Escape cancels it instead of reaching
+   * the inner editor (where it would abort the agent).
+   */
+  setGenerating(generating: boolean): void {
+    this.generating = generating;
+  }
+
   private getSelectedSuggestion(): string | null {
     if (this.suggestions.length === 0) return null;
     return this.suggestions[this.selectedSuggestionIndex] ?? null;
@@ -190,6 +204,11 @@ export class SuggestEditor implements EditorComponent {
           return;
         }
       }
+    }
+
+    if (this.generating && matchesKey(data, "escape")) {
+      this.onCancelGeneration?.();
+      return;
     }
 
     this.syncCustomEditorHooks();
