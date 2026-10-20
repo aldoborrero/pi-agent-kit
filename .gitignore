@@ -13,6 +13,8 @@ __pycache__/
 *.py[cod]
 
 # pi runtime state (per-machine; not source)
+.pi/settings.json
+.pi/subagent-history.json
 .pi/loop-tasks.lock
 .pi/loop-tasks.json
 .pi/workflows/
