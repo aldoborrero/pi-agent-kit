@@ -1,4 +1,4 @@
-# Question, web, and notification plugin migration
+# Question, web, notification, and side-conversation plugin migration
 
 The aggregator activates these upstream packages instead of the local factories:
 
@@ -7,6 +7,7 @@ The aggregator activates these upstream packages instead of the local factories:
 | `@aldoborrero/pi-questionnaire` | `@juicesharp/rpiv-ask-user-question@2.12.0` |
 | `@aldoborrero/pi-web-tools` | `pi-web-access@0.35.0` |
 | `@aldoborrero/pi-notify` | `@bacnh85/pi-notify@0.1.8` |
+| `@aldoborrero/pi-btw` | `pi-btw@^0.8.0` (dbachelder) |
 
 The legacy directories were removed from the workspace once the pinned replacements took over.
 They were never imported or dependencies of the bundle. Do not also install the new
@@ -83,3 +84,17 @@ Run `bun test extensions/pi-agent-kit/src/extension.test.ts` for a real SDK-load
 smoke test without model calls. It checks the new tools, absence of retired tools,
 notification hooks, and registration idempotency. Use a fresh interactive Pi
 session to verify the question dialog and native desktop delivery end-to-end.
+
+## Side conversations (/btw)
+
+The retired local overlay asked an ephemeral question without tool access.
+The upstream replacement opens a **real sub-session in parallel** with full
+coding-tool access, even while the main agent is busy:
+
+- `/btw <question>` and the `/side` alias; bare `/btw` opens the prompt UI
+- `/btw:new` starts a fresh thread, `/btw:tangent` drops inherited context,
+  `/btw:ask` is a read-only thread (`read`/`grep`/`find`/`ls` only)
+- `/btw:clear`, `/btw:model`, `/btw:thinking`, `/btw:inject`, and
+  `/btw:summarize` manage the thread lifecycle and handoff
+
+Do not install `pi-btw` standalone: the aggregator already registers it.
