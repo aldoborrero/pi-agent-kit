@@ -35,6 +35,24 @@ Or standalone:
 pi install git:github.com/aldoborrero/pi-agent-kit --path extensions/pi-natives
 ```
 
+## For other extensions
+
+Extensions that want native capabilities import the shared cached loader — never
+`@oh-my-pi/pi-natives` directly:
+
+```ts
+import { loadNatives } from "@aldoborrero/pi-natives/src/natives.ts";
+
+const natives = await loadNatives(); // null when the addon is unavailable
+if (natives) {
+  // e.g. natives.countTokens(text), natives.structuredPatchHunks(old, new, ctx)
+}
+```
+
+The result is cached per process, so every consumer shares one load attempt.
+Consumers in this kit: `pi-natives` (tools), `pi-context` (exact token counts),
+`pi-edit` (Rust diff hunks for previews).
+
 ## Development
 
 ```bash

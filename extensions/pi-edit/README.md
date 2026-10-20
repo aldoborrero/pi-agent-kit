@@ -233,7 +233,7 @@ If the same `oldText → newText` pair appears more than once in a `multi` batch
 
 | Work | Default bound |
 |---|---|
-| Local line-diff search | 15 ms soft timeout and 512 edit distance; beyond it, one removed-then-added block showing at most 512 lines per side |
+| Local line-diff search | Rust `structuredPatchHunks` from `@oh-my-pi/pi-natives` when available (the 512 edit-distance product budget still applies — pathological diffs get the capped block preview); otherwise jsdiff with a 15 ms soft timeout and the same budget |
 | Raw before + after input | 8 Mi UTF-16 code units |
 | Stored preview content / native patch / text diff | 64 Ki code units each (metadata adds overhead) |
 | Preview rows / individual line length | 2,000 rows / 2,000 code units |
