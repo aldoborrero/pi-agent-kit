@@ -21,6 +21,7 @@ export class SuggestEditor implements EditorComponent {
   private onSelectSuggestion?: ((index: number) => void) | undefined;
   private onDismissSuggestion?: () => void;
   private onCancelGeneration?: () => void;
+  private onUserInput?: () => void;
   private generating = false;
 
   // Expose CustomEditor's duck-typed app-keybinding surface so the host can wire
@@ -63,7 +64,14 @@ export class SuggestEditor implements EditorComponent {
   }
 
   set onChange(handler: ((text: string) => void) | undefined) {
-    this.inner.onChange = handler;
+    // Preserve the host's handler while observing text changes ourselves —
+    // the observer powers cancel-on-type for in-flight generations.
+    this.inner.onChange = handler
+      ? (text: string) => {
+          handler(text);
+          this.onUserInput?.();
+        }
+      : undefined;
   }
 
   get borderColor(): ((str: string) => string) | undefined {
@@ -155,6 +163,15 @@ export class SuggestEditor implements EditorComponent {
 
   setOnCancelGeneration(handler: (() => void) | undefined): void {
     this.onCancelGeneration = handler;
+  }
+
+  /**
+   * Fired whenever the editor text changes through user interaction. The
+   * extension cancels in-flight generation on the first keystroke — a
+   * suggestion arriving after the user started typing is waste.
+   */
+  setOnUserInput(handler: (() => void) | undefined): void {
+    this.onUserInput = handler;
   }
 
   /**
