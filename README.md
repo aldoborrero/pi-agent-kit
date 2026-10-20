@@ -1,23 +1,51 @@
-# Pi Agent Kit
+<div align="center">
+  <img src="assets/banner.svg" alt="pi-agent-kit — extensions, themes, agents and prompt templates for the Pi coding agent" width="100%">
 
-A collection of `pi-*` extensions for [Pi Coding Agent](https://github.com/badlogic/pi-mono).
+  [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+  [![npm publish](https://github.com/aldoborrero/pi-agent-kit/actions/workflows/npm-publish.yml/badge.svg)](https://github.com/aldoborrero/pi-agent-kit/actions/workflows/npm-publish.yml)
+  [![Built for Pi](https://img.shields.io/badge/built%20for-pi%20coding%20agent-8b5cf6.svg)](https://github.com/badlogic/pi-mono)
+
+</div>
+
+A toolkit of **extensions, themes, agents, and prompt templates** for the [Pi coding agent](https://github.com/badlogic/pi-mono). It ships as a Bun workspace of 18 local `pi-*` packages — code intelligence, safety, session context, automation, voice, and UI — wired together by a single aggregator package, so **one install gets you everything**.
 
 ## Installation
 
 ```bash
+# From a git repository
+pi install git:github.com/aldoborrero/agent-kit
+
 # From npm (once published)
 pi install npm:@aldoborrero/pi-agent-kit
 
-# From local clone
+# From a local clone
 pi install ./agent-kit
 ```
 
-## Extensions
+Restart Pi afterwards. The aggregator (`pi-agent-kit`) activates every local extension plus the pinned external packages listed below — you don't need to install any of them separately.
 
-All extensions follow the same structure:
-- `src/extension.ts` — entry point
-- `package.json` with `@aldoborrero/pi-{name}` naming and peer dependencies
-- `README.md` with usage docs
+## What you get
+
+- **16 extensions** loaded through the aggregator — structural search, enhanced editing, sandboxing, Bitwarden, suggestions, voice, and more
+- **2 extensions** loaded from their own entries: [`@bacnh85/pi-subagent`](https://www.npmjs.com/package/@bacnh85/pi-subagent) (task delegation) and [`@quintinshaw/pi-dynamic-workflows`](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows) (deterministic workflow orchestration)
+- **6 agents** (`agents/`): explore, plan, build, review, debug, brainstorm — lean markdown system prompts that inherit the session model
+- **5 prompt templates** (`prompts/`): brainstorm, debug, explore, full-cycle, review — loaded as slash commands
+- **2 themes**: `lavender` (shipped by pi-themes) plus [`@xynogen/pix-themes`](https://www.npmjs.com/package/@xynogen/pix-themes)
+
+### Examples
+
+Once installed, you get commands like:
+
+```text
+/until tests              # repeat the last request until tests pass
+/loop 5m /until tests     # run a prompt on a recurring timer
+/websearch "pi changelog" # open the search curator
+/voice                    # toggle speech-to-text recording
+/diff                     # view uncommitted changes
+/btw "quick question"     # parallel side conversation in a sub-session
+```
+
+## Extension catalog
 
 ### Bundle
 
@@ -61,10 +89,6 @@ All extensions follow the same structure:
 | [`pi-until`](extensions/pi-until) | Repeat until a condition is met |
 | [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) | External — structured questions with multi-select, previews, and notes |
 
-Deterministic workflow orchestration is provided by the external
-[`@quintinshaw/pi-dynamic-workflows`](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows)
-package, loaded from its own extension entry through the root `pi.extensions` manifest.
-
 ### Search & Web
 
 | Extension | Description |
@@ -79,8 +103,6 @@ package, loaded from its own extension entry through the root `pi.extensions` ma
 | [`pi-codex`](extensions/pi-codex) | OpenAI Codex integration — review and rescue tasks |
 | [`@bacnh85/pi-notify`](https://github.com/bacnh85/pi-extensions/tree/main/pi-notify) | External — desktop notifications for completion, errors, and questions |
 | [`pi-phoenix`](https://github.com/philipbjorge/pi-phoenix) | External — OpenTelemetry tracing to Arize Phoenix |
-
-> This kit disables pi-phoenix tracing and pi-hindsight memory by default. Opt in with `PI_PHOENIX_ENABLE=true` and `PI_HINDSIGHT_ENABLED=true`.
 
 ### Input & Voice
 
@@ -101,21 +123,44 @@ package, loaded from its own extension entry through the root `pi.extensions` ma
 |-----------|-------------|
 | [`pi-common`](extensions/pi-common) | Shared `createUiColors` and color utilities |
 
-## External plugin migration
+## Configuration
 
-Questionnaires, web access, and notifications are now provided by pinned external
-packages, activated by the aggregator. Do not install a second copy alongside it.
-The old `pi-questionnaire`, `pi-web-tools`, and `pi-notify` sources have been removed
-from the repository; only the pinned external packages remain.
+Most integrations work out of the box; API-backed ones need keys. Copy `.envrc.local-template` to `.envrc.local` and fill in what you use:
 
-See [migration notes](docs/plugin-migration.md) for renamed tools, configuration,
-and Linux/Nix notification requirements. Restart Pi after updating dependencies.
+```bash
+cp .envrc.local-template .envrc.local
+direnv allow
+```
+
+| Variable | Extension | Description |
+|----------|-----------|-------------|
+| `GROQ_API_KEY` / `OPENAI_API_KEY` | pi-voice | Speech-to-text providers (`VOICE_LANG`, `VOICE_MODE`, `VOICE_DAEMON_URL` also available) |
+| `EXA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `PERPLEXITY_API_KEY`, `FIRECRAWL_API_KEY`, `SEARXNG_BASE_URL` | pi-web-access | Search providers — any one of them |
+| `PI_SUGGEST_MODEL` | pi-suggest | Override the next-prompt suggestion model |
+| `PI_UNTIL_MAX_ITERATIONS` | pi-until | Cap iterations for the `/until` loop |
+| `RBW_TIMEOUT_MS` / `RBW_UNLOCK_TIMEOUT_MS` | pi-bitwarden | rbw command / unlock timeouts |
+| `PI_PHOENIX_ENABLE` | pi-phoenix | Opt-in tracing — off by default; `true` to enable |
+| `PI_HINDSIGHT_ENABLED` | pi-hindsight | Opt-in memory — off by default; `true` to enable |
+
+> Phoenix tracing and Hindsight memory are disabled by default in this kit.
+
+Migrating from older versions (renamed tools, notification requirements on Linux/Nix)? See the [migration notes](docs/plugin-migration.md).
 
 ## Development
 
 ```bash
-bun install                  # Install workspace dependencies
-bun test                     # Run tests
+bun install    # Install workspace dependencies
+bun test       # Run the workspace test suite
+nix develop    # Enter the Nix dev shell
+nix fmt        # Format code
+```
+
+Each extension lives in `extensions/` as its own `@aldoborrero/pi-*` workspace package with a `README.md` and `package.json`. Python packages with Nix build wrappers live in `packages/`.
+
+While working on agents locally, link the definitions so pi picks them up:
+
+```bash
+ln -s "$PWD/agents" ~/.pi/agent/agents
 ```
 
 ## Publishing
@@ -123,12 +168,12 @@ bun test                     # Run tests
 Monorepo publishing is idempotent and package-version based:
 
 ```bash
-bun run publish:dry          # Show packages whose name@version is not on npm
-bun run publish:all          # Publish unpublished workspace package versions
+bun run publish:dry    # Show packages whose name@version is not on npm
+bun run publish:all    # Publish unpublished workspace package versions
 ```
 
-The GitHub workflow keeps the Nix shell and runs on `release-YYYYMMDD-HHMM` tags.
+The GitHub workflow (`npm-publish.yml`) runs on `release-YYYYMMDD-HHMM` tags.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © Aldo Borrero

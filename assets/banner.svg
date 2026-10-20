@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="pi-agent-kit — extensions, themes, agents and prompt templates for the Pi coding agent">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0f0c29"/>
+      <stop offset="0.55" stop-color="#2b2657"/>
+      <stop offset="1" stop-color="#1c1a3e"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#6d28d9"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#a78bfa" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#6366f1" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#6366f1" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="300" rx="16" fill="url(#bg)"/>
+  <circle cx="1120" cy="30" r="220" fill="url(#glow1)"/>
+  <circle cx="40" cy="290" r="200" fill="url(#glow2)"/>
+
+  <!-- subtle grid dots -->
+  <g fill="#f5f3ff" opacity="0.08">
+    <circle cx="700" cy="60" r="2"/><circle cx="740" cy="60" r="2"/><circle cx="780" cy="60" r="2"/><circle cx="820" cy="60" r="2"/>
+    <circle cx="700" cy="100" r="2"/><circle cx="740" cy="100" r="2"/><circle cx="780" cy="100" r="2"/><circle cx="820" cy="100" r="2"/>
+    <circle cx="700" cy="140" r="2"/><circle cx="740" cy="140" r="2"/><circle cx="780" cy="140" r="2"/><circle cx="820" cy="140" r="2"/>
+  </g>
+
+  <!-- pi glyph chip -->
+  <g>
+    <rect x="72" y="104" width="88" height="88" rx="22" fill="url(#chip)"/>
+    <text x="116" y="150" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="52" font-weight="700" fill="#f5f3ff" text-anchor="middle" dominant-baseline="central">&#928;</text>
+  </g>
+
+  <!-- title + subtitle -->
+  <text x="196" y="140" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#f5f3ff">pi-agent-kit</text>
+  <text x="198" y="180" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" fill="#b9b3dd">Extensions, themes, agents and prompt templates for the Pi coding agent</text>
+
+  <!-- feature chips -->
+  <g font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="15" fill="#d8d3f0">
+    <rect x="196" y="206" width="146" height="32" rx="16" fill="#f5f3ff" fill-opacity="0.08" stroke="#8b5cf6" stroke-opacity="0.45"/>
+    <text x="269" y="228" text-anchor="middle">18 extensions</text>
+
+    <rect x="354" y="206" width="96" height="32" rx="16" fill="#f5f3ff" fill-opacity="0.08" stroke="#8b5cf6" stroke-opacity="0.45"/>
+    <text x="402" y="228" text-anchor="middle">6 agents</text>
+
+    <rect x="462" y="206" width="176" height="32" rx="16" fill="#f5f3ff" fill-opacity="0.08" stroke="#8b5cf6" stroke-opacity="0.45"/>
+    <text x="550" y="228" text-anchor="middle">5 prompt templates</text>
+
+    <rect x="650" y="206" width="120" height="32" rx="16" fill="#f5f3ff" fill-opacity="0.08" stroke="#8b5cf6" stroke-opacity="0.45"/>
+    <text x="710" y="228" text-anchor="middle">2 themes</text>
+  </g>
+</svg>
