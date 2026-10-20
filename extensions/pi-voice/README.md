@@ -83,12 +83,26 @@ Persisted config takes priority over env vars.
 **Audio capture is native by default**: microphone capture runs through `@oh-my-pi/pi-natives`
 (Rust/cpal, bundled with this kit) — no external binaries needed on Linux or macOS.
 
-Fallbacks, used only when the native addon is unavailable (e.g. musl/Alpine):
+Fallbacks, used only when the native addon is unavailable (e.g. musl/Alpine) or its audio
+backends cannot open — the recorder then falls back automatically at recording time:
 
 **Linux:** `arecord` (from `alsa-utils`), `sox`/`rec`, or `ffmpeg`
 **macOS:** `sox`/`rec` or `ffmpeg`
 
-Not needed when using the daemon provider (daemon handles audio capture).
+**NixOS note:** the native addon `dlopen()`s `libasound.so.2` / `libpulse-simple.so.0` at runtime,
+which are not on NixOS's global loader path. Fix with either:
+
+```nix
+# shell / devshell
+shellHook = ''
+  export LD_LIBRARY_PATH="${pkgs.alsa-lib}/lib:${pkgs.libpulseaudio}/lib:$LD_LIBRARY_PATH"
+'';
+
+# or system-wide for foreign binaries
+programs.nix-ld.libraries = with pkgs; [ alsa-lib libpulseaudio ];
+```
+
+Otherwise recording falls back to the external binaries above.
 
 ## Footer
 
