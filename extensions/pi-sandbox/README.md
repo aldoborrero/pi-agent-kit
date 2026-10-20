@@ -49,7 +49,11 @@ call. One persistent session keeps shell state across tool calls; timeout,
 abort, and errors quarantine it so the next call starts clean.
 
 **Off by default** — brush is POSIX sh with partial bash dialect support, so
-common bashisms may fail. Enable when you accept that:
+common bashisms may fail. Known dialect gaps (verified against the embedded
+session): `trap … EXIT` registers but never fires — in a persistent session
+EXIT means session exit, not command end, so one-shot cleanup patterns like
+`trap 'rm -rf $tmp' EXIT` silently skip cleanup (same accepted trade-off as
+the oh-my-pi integration). Enable when you accept that:
 
 ```jsonc
 // .pi/settings.json (project) or ~/.pi/agent/settings.json (global)
