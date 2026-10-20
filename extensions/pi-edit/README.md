@@ -288,6 +288,33 @@ bun run --cwd extensions/pi-edit bench
 
 The harness uses temporary files, a warm filesystem, one warm-up and five execution samples; cached rendering uses 15 samples. It compares the Pi builtin, native wrapper and legacy batch engine, reports serialized result size, and measures both historical and compact rendering. It does not include LLM/network time, actual terminal painting, session writes or external file-modification observers. Run on the deployment runtime before using the numbers as a latency target.
 
+## Hashline Mode (opt-in)
+
+`hashline` is a line-anchored edit DSL driven by the native engine: the model
+reads a file, gets a `[path#TAG]` snapshot header in the output, and edits by
+line ranges — immune to text-matching ambiguity in large files:
+
+```
+*** Begin Patch
+[src/config.ts#1A2B]
+PUT 12.=14:
++new lines
+CUT 20.=21
+MV src/config.renamed.ts
+*** End Patch
+```
+
+Anchors validate against the snapshot recorded at read time — editing a file
+that changed after the read (or that was never read through the tagged `read`)
+is rejected model-facing. Hunks: `PUT start.=end:` (+body), `PUT <line:` /
+`PUT >line:` / `PUT >$` (gap inserts), `CUT start.=end`, `REM` (delete file),
+`MV target` (move), clipboard registers ` @name`.
+
+Enable with `PI_EDIT_HASHLINE=1` or `nativeEdit.hashline: true` in settings
+(needs the native addon). Enabling registers a deliberate `read` replacement:
+same schema, same output, plus the `[path#TAG]` header on text reads. Off by
+default because it changes the `read` output the model sees.
+
 ## Native Engine (opt-in) and Auto-Generated Guard
 
 The kit integrates oh-my-pi's Rust edit engine (`EditSession`/`EditStore` from

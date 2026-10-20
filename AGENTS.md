@@ -102,7 +102,8 @@ direnv allow
 | `subagent` | @bacnh85/pi-subagent | Delegate tasks to specialized agents (single, parallel, chain) |
 | `ask_user_question` | @juicesharp/rpiv-ask-user-question | Structured questions with multi-select, previews, and notes |
 | `tuicr` | pi-tuicr | Interactive code review with feedback capture |
-| `edit` | pi-edit | Replaces the built-in edit tool (single, `multi` batch, and Codex-style patch modes) |
+| `edit` | pi-edit | Replaces the built-in edit tool (single, `multi` batch, Codex-style patch, and opt-in `hashline` line-anchored mode) |
+| `read` | pi-edit | With hashline enabled: replaces the built-in read to prepend the `[path#TAG]` snapshot header — same contract, presentation-only addition |
 | `hindsight_*` | pi-hindsight | Long-term memory tools (`hindsight_recall`, `hindsight_retain`, `hindsight_reflect`, `hindsight_status`, …) |
 | `signal_loop_success` | pi-until | Signal that an `/until` loop's condition has been met |
 | `bash` (sandboxed) | pi-sandbox | Re-registers the built-in bash tool wrapped in OS-level sandboxing when enabled |
@@ -328,7 +329,7 @@ fs.watch(join(cwd, ".envrc"), () => scheduleReload());
 ### 2. Replace Tools Deliberately — and Preserve the Contract
 
 Hooking events beats replacing tools when you only need side effects. When you DO replace a
-built-in (`pi-edit` replaces `edit`, `pi-sandbox` wraps `bash`, `pi-natives` replaces `grep`),
+built-in (`pi-edit` replaces `edit` and, under the opt-in hashline gate, `read`; `pi-sandbox` wraps `bash`; `pi-natives` replaces `grep`),
 it is a deliberate product decision — do it so the model cannot tell the difference:
 
 - Keep the parameter contract identical (same schema, same semantics)
