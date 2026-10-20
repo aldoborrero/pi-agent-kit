@@ -30,5 +30,8 @@
     "directory": "extensions/pi-suggest"
   },
   "author": "aldoborrero",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@aldoborrero/pi-natives": "*"
+  }
 }

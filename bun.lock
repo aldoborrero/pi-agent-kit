@@ -207,6 +207,9 @@
     "extensions/pi-suggest": {
       "name": "@aldoborrero/pi-suggest",
       "version": "1.0.0",
+      "dependencies": {
+        "@aldoborrero/pi-natives": "*",
+      },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
         "@earendil-works/pi-ai": "*",

@@ -29,7 +29,8 @@ export function filterSuggestion(raw: string | null): { suggestion: string | nul
 
   if (wordCount > 12) return { suggestion: null, reason: "suggestion exceeded 12 words" };
   if (suggestion.length >= 100) return { suggestion: null, reason: "suggestion exceeded 100 characters" };
-  if (/^\w+:\s/.test(suggestion)) return { suggestion: null, reason: "suggestion looked like a labeled response" };
+  if (/^\w+:\s/.test(suggestion) && !/^(feat|fix|chore|docs|refactor|test|perf|build|ci|style|revert)(\([^)]*\))?:\s\S/.test(suggestion))
+    return { suggestion: null, reason: "suggestion looked like a labeled response" };
   if (/^\(.*\)$|^\[.*\]$/.test(suggestion)) return { suggestion: null, reason: "suggestion was wrapped in brackets" };
   if (/[\n*]/.test(suggestion)) return { suggestion: null, reason: "suggestion contained newline or markdown bullets" };
   if (/[.!?]\s+[A-ZÁÉÍÓÚÑÜ]/.test(suggestion)) return { suggestion: null, reason: "suggestion looked like multiple sentences" };
