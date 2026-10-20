@@ -16,6 +16,7 @@
     ]
   },
   "dependencies": {
+    "@aldoborrero/pi-natives": "*",
     "@anthropic-ai/sandbox-runtime": "^0.0.26"
   },
   "peerDependencies": {
