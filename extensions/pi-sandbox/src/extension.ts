@@ -46,7 +46,12 @@ import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox
 import { SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type BashOperations, createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { createUiColors } from "@aldoborrero/pi-common";
+import { loadNatives } from "@aldoborrero/pi-natives/src/natives.ts";
+import { createNativeShellOperations, shutdownNativeShellSessions } from "@aldoborrero/pi-natives/src/shell-ops.ts";
 import { once } from "./once.ts";
+
+// Native addon loads once per process; null when unavailable (fallback: local bash).
+const natives = await loadNatives();
 
 interface SandboxConfig extends SandboxRuntimeConfig {
 	enabled?: boolean;
@@ -79,6 +84,43 @@ const DEFAULT_CONFIG: SandboxConfig = {
 function normalizeConfig(raw: unknown): Partial<SandboxConfig> {
 	if (!raw || typeof raw !== "object") return {};
 	return raw as Partial<SandboxConfig>;
+}
+
+/**
+ * Resolve the opt-in native shell backend (persistent brush-core session).
+ *
+ * Priority: `PI_SHELL_NATIVE` env override > project settings > global
+ * settings, under the `nativeShell` key (global + project):
+ *
+ * ```jsonc
+ * // .pi/settings.json or ~/.pi/agent/settings.json
+ * { "nativeShell": { "enabled": true } }
+ * ```
+ *
+ * Off by default: brush is POSIX sh with partial bash dialect support, so
+ * the native backend stays opt-in until evaluated.
+ */
+function resolveNativeShellEnabled(cwd: string): boolean {
+	const env = process.env.PI_SHELL_NATIVE;
+	if (env !== undefined) return /^(1|true|yes)$/i.test(env);
+	try {
+		const manager = SettingsManager.create(cwd);
+		const read = (settings: Record<string, unknown> | undefined) =>
+			(settings?.nativeShell as { enabled?: unknown } | undefined)?.enabled;
+		const project = read(manager.getProjectSettings() as Record<string, unknown>);
+		if (project !== undefined) return project === true;
+		return read(manager.getGlobalSettings() as Record<string, unknown>) === true;
+	} catch {
+		return false;
+	}
+}
+
+function createBashToolOptions(cwd: string, nativeShellEnabled: boolean): { operations?: BashOperations } | undefined {
+	if (nativeShellEnabled && natives?.Shell) {
+		return { operations: createNativeShellOperations(natives) };
+	}
+	// Default (and fallback when the addon is missing): SDK local shell ops.
+	return undefined;
 }
 
 function readLegacyConfig(path: string): Partial<SandboxConfig> {
@@ -223,7 +265,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	let projectCwd = process.cwd();
-	let cachedBash = createBashTool(projectCwd);
+	let nativeShellEnabled = resolveNativeShellEnabled(projectCwd);
+	let cachedBash = createBashTool(projectCwd, createBashToolOptions(projectCwd, nativeShellEnabled));
 	let sandboxEnabled = false;
 	let sandboxInitialized = false;
 	// True once the user actually asked for sandboxing (config enabled:true or
@@ -302,7 +345,17 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		projectCwd = ctx.cwd;
-		cachedBash = createBashTool(projectCwd);
+		nativeShellEnabled = resolveNativeShellEnabled(ctx.cwd);
+		if (nativeShellEnabled && !natives?.Shell) {
+			ctx.ui.notify(
+				"nativeShell is enabled but @oh-my-pi/pi-natives is unavailable — using the standard local bash backend.",
+				"warning",
+			);
+			nativeShellEnabled = false;
+		} else if (nativeShellEnabled) {
+			ctx.ui.notify("bash backend: native shell (persistent brush session)", "info");
+		}
+		cachedBash = createBashTool(projectCwd, createBashToolOptions(projectCwd, nativeShellEnabled));
 		const noSandbox = pi.getFlag("no-sandbox") as boolean;
 
 		if (noSandbox) {
@@ -368,6 +421,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
+		shutdownNativeShellSessions();
 		if (sandboxInitialized) {
 			try {
 				await SandboxManager.reset();

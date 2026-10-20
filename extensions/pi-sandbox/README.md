@@ -41,6 +41,26 @@ Legacy compatibility is still kept for:
 
 Set `"sandbox.enabled": true` in settings to auto-enable on session start.
 
+## Native shell backend (opt-in)
+
+pi-sandbox owns the kit's bash tool and can run it on the embedded brush-core
+shell (Rust, via `@aldoborrero/pi-natives`) instead of spawning a real bash per
+call. One persistent session keeps shell state across tool calls; timeout,
+abort, and errors quarantine it so the next call starts clean.
+
+**Off by default** — brush is POSIX sh with partial bash dialect support, so
+common bashisms may fail. Enable when you accept that:
+
+```jsonc
+// .pi/settings.json (project) or ~/.pi/agent/settings.json (global)
+{ "nativeShell": { "enabled": true } }
+```
+
+or set `PI_SHELL_NATIVE=1` (env wins over settings). When sandboxing is active
+it always wins — the native backend only serves unsandboxed runs. If the native
+addon is unavailable the extension falls back to the standard local bash backend
+with a session-start warning.
+
 ## Fail-closed behavior
 
 Sandboxing is a security control, so it fails **closed**. Once sandboxing has been requested (config `enabled: true`, or `/sandbox on`) but the OS sandbox cannot be activated — for example initialization fails, or the platform is unsupported — bash is **blocked** rather than silently run unsandboxed:

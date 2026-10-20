@@ -205,6 +205,7 @@
       "name": "@aldoborrero/pi-sandbox",
       "version": "1.0.0",
       "dependencies": {
+        "@aldoborrero/pi-natives": "*",
         "@anthropic-ai/sandbox-runtime": "^0.0.26",
       },
       "peerDependencies": {

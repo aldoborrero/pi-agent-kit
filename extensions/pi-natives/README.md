@@ -51,7 +51,33 @@ if (natives) {
 
 The result is cached per process, so every consumer shares one load attempt.
 Consumers in this kit: `pi-natives` (tools), `pi-context` (exact token counts),
-`pi-edit` (Rust diff hunks for previews).
+`pi-edit` (Rust diff hunks for previews), `pi-sandbox` (native bash backend).
+
+### Native shell operations
+
+`shell-ops.ts` adapts the addon's persistent brush-core `Shell` session to the
+SDK's `BashOperations` contract, so the bash tool can run on the embedded shell
+without replacing the tool (truncation, rendering, and status formatting stay
+with the SDK tool):
+
+```ts
+import { loadNatives } from "@aldoborrero/pi-natives/src/natives.ts";
+import { createNativeShellOperations, shutdownNativeShellSessions } from "@aldoborrero/pi-natives/src/shell-ops.ts";
+
+const natives = await loadNatives();
+const operations = natives?.Shell
+  ? createNativeShellOperations(natives)
+  : undefined; // fall back to the SDK's createLocalBashOperations()
+
+// On session_shutdown:
+shutdownNativeShellSessions();
+```
+
+Session model: one persistent session per process (shell state survives across
+tool calls), one-shot sessions for parallel calls, quarantine on
+timeout/abort/error. The bash dialect caveat applies — brush is POSIX sh with
+partial bash support — which is why pi-sandbox ships this backend **opt-in**
+(`nativeShell.enabled: true` in settings, or `PI_SHELL_NATIVE=1`).
 
 ## Development
 
