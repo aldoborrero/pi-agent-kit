@@ -237,9 +237,27 @@ export default function voiceExtension(pi: ExtensionAPI) {
 				stopAndTranscribe(ctx);
 			});
 		} catch (err) {
-			state = "idle";
-			showError(ctx, `Recording failed: ${err instanceof Error ? err.message : String(err)}`);
-			return false;
+			// Native mic capture can fail at system level (e.g. NixOS without
+			// libpulse/libasound on the dynamic-loader path). External
+			// binaries are a legitimate second chance before giving up.
+			if (recorder instanceof NativeRecorder) {
+				const fallback = new SpawnRecorder();
+				try {
+					fallback.start(() => {
+						stopAndTranscribe(ctx);
+					});
+				} catch (fallbackErr) {
+					state = "idle";
+					showError(ctx, `Recording failed: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`);
+					return false;
+				}
+				recorder = fallback;
+				showError(ctx, "Native mic capture failed — using external recorder (arecord/sox/ffmpeg).");
+			} else {
+				state = "idle";
+				showError(ctx, `Recording failed: ${err instanceof Error ? err.message : String(err)}`);
+				return false;
+			}
 		}
 
 		// Recorder started successfully — transition to recording
