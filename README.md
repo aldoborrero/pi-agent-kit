@@ -26,7 +26,8 @@ Restart Pi afterwards. The aggregator (`pi-agent-kit`) activates every local ext
 
 ## What you get
 
-- **15 extensions** loaded through the aggregator — structural search, enhanced editing, sandboxing, suggestions, voice, and more
+- **22 extensions** loaded through the aggregator: 15 maintained here + 7 curated external packages (side conversations, long-term memory, web access, notifications, tracing, structured questions, rewind points)
+- **Rust-native under the hood**: the `bash` tool runs on an embedded brush-core shell session by default (persistent state, ~15–38× less spawn overhead, opt-out in settings), `grep`/`ast_grep`/`pdf` are native, token counts are exact per model family (Claude, Qwen, GLM, DeepSeek — beyond tiktoken), and mic capture needs no external binaries. Integration ledger: [docs/natives-shortlist.md](docs/natives-shortlist.md)
 - **2 extensions** loaded from their own entries: [`@bacnh85/pi-subagent`](https://www.npmjs.com/package/@bacnh85/pi-subagent) (task delegation) and [`@quintinshaw/pi-dynamic-workflows`](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows) (deterministic workflow orchestration)
 - **6 agents** (`agents/`): explore, plan, build, review, debug, brainstorm — lean markdown system prompts that inherit the session model
 - **5 prompt templates** (`prompts/`): brainstorm, debug, explore, full-cycle, review — loaded as slash commands
@@ -59,7 +60,7 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 
 | Extension | Source | Description |
 |-----------|--------|-------------|
-| [`pi-natives`](extensions/pi-natives) | Mine | Rust-accelerated tools via `@oh-my-pi/pi-natives` — native `grep` (ripgrep engine), `ast_grep` (pattern mode + CLI fallback for rule/inspect), `pdf` |
+| [`pi-natives`](extensions/pi-natives) | Mine | Rust-accelerated tools via `@oh-my-pi/pi-natives` — native `grep` (ripgrep engine), `ast_grep` (pattern mode + CLI fallback), `pdf`; exports the shared loader, the native bash backend, and the `scheme://` VFS registry for other extensions |
 | [`pi-edit`](extensions/pi-edit) | Mine | Enhanced `edit` tool — single, batch (`multi`), and Codex-style patch modes |
 | [`pi-diff`](extensions/pi-diff) | Mine | Structured diff rendering |
 | [`pi-tuicr`](extensions/pi-tuicr) | Mine | Interactive code review launcher |
@@ -68,14 +69,14 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 
 | Extension | Source | Description |
 |-----------|--------|-------------|
-| [`pi-sandbox`](extensions/pi-sandbox) | Mine | OS-level sandboxing for bash commands |
+| [`pi-sandbox`](extensions/pi-sandbox) | Mine | Owns the `bash` tool — embedded Rust shell by default (persistent session), OS-level sandboxing opt-in, local-bash fallback |
 | [`pi-rewind-hook`](https://github.com/nicobailon/pi-rewind-hook) | External | File-state rewind points, restorable from `/fork` and `/tree` |
 
 ### Session & Context
 
 | Extension | Source | Description |
 |-----------|--------|-------------|
-| [`pi-context`](extensions/pi-context) | Mine | `/context` TUI — token usage, extensions, skills, session cost |
+| [`pi-context`](extensions/pi-context) | Mine | `/context` TUI — token usage (native exact counts per model family), extensions, skills, session cost |
 | [`pi-alias`](extensions/pi-alias) | Mine | `/exit` (alias for `/quit`) and `/clear` (alias for `/new`) commands |
 | [`pi-suggest`](extensions/pi-suggest) | Mine | Next-prompt prediction — ghost text suggestions after each turn |
 | [`pi-btw`](https://github.com/dbachelder/pi-btw) | External | Parallel `/btw` side conversations in a real sub-session with tool access |
@@ -109,7 +110,7 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 
 | Extension | Source | Description |
 |-----------|--------|-------------|
-| [`pi-voice`](extensions/pi-voice) | Mine | Speech-to-text — Groq, OpenAI, or local Whisper |
+| [`pi-voice`](extensions/pi-voice) | Mine | Speech-to-text — Groq, OpenAI, or local Whisper; native mic capture (no `arecord`/`sox`/`ffmpeg` needed) |
 
 ### UI
 
@@ -139,6 +140,7 @@ direnv allow
 | `EXA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `PERPLEXITY_API_KEY`, `FIRECRAWL_API_KEY`, `SEARXNG_BASE_URL` | pi-web-access | External | Search providers — any one of them |
 | `PI_SUGGEST_MODEL` | pi-suggest | Mine | Override the next-prompt suggestion model |
 | `PI_UNTIL_MAX_ITERATIONS` | pi-until | Mine | Cap iterations for the `/until` loop |
+| `PI_SHELL_NATIVE` | pi-sandbox | Mine | Force the bash backend on/off (`1`/`0`) — otherwise `nativeShell.enabled` settings key or default-on |
 | `PI_PHOENIX_ENABLE` | pi-phoenix | External | Opt-in tracing — off by default; `true` to enable |
 | `PI_HINDSIGHT_ENABLED` | pi-hindsight | External | Opt-in memory — off by default; `true` to enable |
 
