@@ -18,6 +18,7 @@ import { createUiColors, getRegisteredEditorDecorators, isEditorRegistryInstalle
 import { SuggestEditor } from "./editor";
 import { filterSuggestion, parseSuggestionArray } from "./text.ts";
 import { buildWorkspaceSummary, gatherGitContext, type SuggestGitContext } from "./context.ts";
+import { DelegationTracker } from "./delegation-tracker.ts";
 import { once } from "./once.ts";
 
 const DEFAULT_SUGGESTION_MODEL = "current";
@@ -639,6 +640,10 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastGenerationStartedAt = 0;
 
+  // Stand down while subagents/workers run: their turn ends must not drive
+  // suggestions for the main editor (noise + stale-ctx crashes).
+  const delegation = new DelegationTracker();
+
   // Spinner for the "generating" widget state; cleared whenever generation ends.
   let spinnerTimer: ReturnType<typeof setInterval> | null = null;
   let spinnerFrame = 0;
@@ -845,6 +850,18 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     renderSuggestion(ctx);
   });
 
+  pi.on("tool_call", async (event, ctx) => {
+    delegation.onToolCall(event.toolName, event.toolCallId);
+    if (delegation.isDelegating()) {
+      // Delegation started: any in-flight suggestion is already stale.
+      clearSuggestion(ctx);
+    }
+  });
+
+  pi.on("tool_result", async (event, ctx) => {
+    delegation.onToolResult(event.toolName, event.toolCallId);
+  });
+
   pi.on("session_switch", async (_event, ctx) => {
     installEditor(ctx);
     clearSuggestion(ctx);
@@ -958,8 +975,14 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     } catch (error) {
       if (activeSession === mySession) activeSession = null;
       if (state.generationId !== generationId) return;
-      // Ignore abort errors — these are expected when a newer generation starts
+      // Ignore abort errors — expected when a newer generation starts.
       if (error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"))) {
+        return;
+      }
+      // Ignore stale-ctx errors — expected when a session is replaced or
+      // reloaded mid-generation (subagents, workers, /reload). The user has
+      // moved on; surfacing them is noise.
+      if (error instanceof Error && /ctx is stale|invalidated|session replacement/i.test(error.message)) {
         return;
       }
       clearSuggestion(ctx, { preserveDiagnostics: true });
@@ -976,6 +999,12 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   }
 
   pi.on("agent_end", async (event, ctx) => {
+    if (delegation.isDelegating()) {
+      // This turn end belongs to (or overlaps) a running subagent — not a
+      // moment to predict the user's next message in the main editor.
+      clearSuggestion(ctx);
+      return;
+    }
     if (!ctx.cwd) {
       clearSuggestion(ctx);
       return;

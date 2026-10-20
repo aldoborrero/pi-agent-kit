@@ -122,6 +122,15 @@ Meaning:
 Legacy compatibility:
 - `PI_PROMPT_SUGGESTION_MODEL` is still accepted as a fallback env var
 
+## Subagent / worker suppression
+
+While a `subagent` or `herdr` tool call is in flight, pi-suggest stands down:
+turn ends that belong to (or overlap) a running subagent do not generate
+suggestions, any in-flight generation is cancelled when delegation starts,
+and stale-context errors from session replacement are swallowed silently
+instead of surfacing "Suggest failed" warnings. Suppression ends when the
+delegation tool result arrives.
+
 ## UX
 
 This is a v1 implementation:
