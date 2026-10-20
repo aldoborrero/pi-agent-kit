@@ -17,6 +17,9 @@ __pycache__/
 .pi/loop-tasks.json
 .pi/workflows/
 
+# git worktrees (see AGENTS.md → Workflow)
+.worktrees/
+
 # secrets & certs
 *.pem
 *.key

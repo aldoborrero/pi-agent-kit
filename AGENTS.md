@@ -171,6 +171,19 @@ Shared UI helpers live in the `extensions/pi-common` workspace package — there
 
 ## Development
 
+### Workflow: branches, PRs, and worktrees
+
+- **Work on feature branches, merge via PRs.** Never push directly to `main` — every change (even small ones) goes through a pull request so it gets reviewed and CI-checked. Name branches `feat/…`, `fix/…`, or `docs/…`
+- **Use git worktrees under `.worktrees/`** to keep parallel work isolated (e.g. a PR branch while `main` stays checked out in the main directory). `.worktrees/` is gitignored. Create with:
+
+  ```bash
+  git worktree add .worktrees/feat-xyz -b feat/xyz
+  cd .worktrees/feat-xyz && bun install   # worktrees need their own node_modules
+  ```
+
+  Clean up after merge with `git worktree remove .worktrees/feat-xyz` (then `git worktree prune` if needed)
+- Commit messages follow conventional commits (`feat:`, `fix:`, `docs:`, `chore:` with optional scope)
+
 ### Nix Environment
 
 ```bash
