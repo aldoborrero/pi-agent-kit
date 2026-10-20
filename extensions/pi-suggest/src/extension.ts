@@ -17,6 +17,7 @@ import { Container, fuzzyFilter, Input, SelectList, Spacer, Text } from "@earend
 import { createUiColors, getRegisteredEditorDecorators, isEditorRegistryInstalled, registerEditorDecorator } from "@aldoborrero/pi-common";
 import { SuggestEditor } from "./editor";
 import { filterSuggestion, parseSuggestionArray } from "./text.ts";
+import { buildWorkspaceSummary, gatherGitContext, type SuggestGitContext } from "./context.ts";
 import { once } from "./once.ts";
 
 const DEFAULT_SUGGESTION_MODEL = "current";
@@ -52,6 +53,12 @@ Rules:
 - No assistant voice (avoid: let me, I'll, here's, you should).
 - No evaluative filler (avoid: thanks, looks good, perfect).
 - If no obvious next step exists, return an empty JSON array [].`;
+
+function buildSystemPrompt(git?: SuggestGitContext | null): string {
+  if (!git || git.totalChanged === 0) return SUGGEST_SYSTEM_PROMPT;
+  return `${SUGGEST_SYSTEM_PROMPT}
+- The repository has ${git.totalChanged} uncommitted file(s) on branch ${git.branch ?? "unknown"}. If the recent conversation is consistent with those changes, the FIRST suggestion must be a commit message for them: conventional commits style, imperative mood, no body, at most 72 characters.`;
+}
 
 interface SuggestModelItem {
   provider: string;
@@ -143,7 +150,12 @@ function buildTurnKey(messages: AgentMessage[]): string {
     .join("|");
 }
 
-function buildSuggestionInput(messages: AgentMessage[], cwd: string): string | null {
+export function buildSuggestionInput(
+  messages: AgentMessage[],
+  cwd: string,
+  git?: SuggestGitContext | null,
+  workspace?: string | null,
+): string | null {
   const relevant = messages
     .filter((message) => isUserMessage(message) || isAssistantMessage(message))
     .slice(-MAX_CONTEXT_MESSAGES);
@@ -151,8 +163,25 @@ function buildSuggestionInput(messages: AgentMessage[], cwd: string): string | n
 
   const lines = [
     `Project: ${cwd}`,
-    "Recent conversation:",
   ];
+
+  if (git) {
+    if (git.totalChanged > 0) {
+      lines.push(
+        `Git: branch=${git.branch ?? "unknown"} uncommitted=${git.totalChanged} files (staged=${git.staged}, unstaged=${git.unstaged}, untracked=${git.untracked})`,
+      );
+      if (git.changedSample.length > 0) {
+        lines.push(`Changed: ${git.changedSample.join(" | ")}`);
+      }
+    } else {
+      lines.push(`Git: branch=${git.branch ?? "unknown"} working tree clean`);
+    }
+  }
+  if (workspace) {
+    lines.push(`Workspace: ${workspace}`);
+  }
+
+  lines.push("Recent conversation:");
 
   for (const message of relevant) {
     const role = (message as { role?: unknown }).role === "assistant" ? "assistant" : "user";
@@ -363,7 +392,12 @@ async function showSuggestModelSelector(ctx: ExtensionContext): Promise<string |
   });
 }
 
-function buildPayloadPreview(input: string, resolvedModel: string, modelResolutionReason: string): string {
+function buildPayloadPreview(
+  input: string,
+  resolvedModel: string,
+  modelResolutionReason: string,
+  systemPrompt: string,
+): string {
   return truncate([
     `model=${resolvedModel}`,
     `resolution=${modelResolutionReason}`,
@@ -372,7 +406,7 @@ function buildPayloadPreview(input: string, resolvedModel: string, modelResoluti
     "extensions=disabled",
     "skills=disabled",
     "promptTemplates=disabled",
-    `systemPrompt=${SUGGEST_SYSTEM_PROMPT.replace(/\s+/g, " ").trim()}`,
+    `systemPrompt=${systemPrompt.replace(/\s+/g, " ").trim()}`,
     `userInput=${input.replace(/\s+/g, " ").trim()}`,
   ].join("\n"), 1200);
 }
@@ -485,7 +519,7 @@ async function generateSuggestion(
       assistantContentPreview: null,
     };
   }
-  const suggestPayloadPreview = buildPayloadPreview(input, resolvedModel, resolution.reason);
+  const suggestPayloadPreview = buildPayloadPreview(input, resolvedModel, resolution.reason, buildSystemPrompt(gitContext));
 
   const suggestCwd = (ctx.cwd && typeof ctx.cwd === "string" && ctx.cwd.length > 0) ? ctx.cwd : process.cwd();
   if (!suggestCwd) {
@@ -512,7 +546,7 @@ async function generateSuggestion(
     noSkills: true,
     noPromptTemplates: true,
     noThemes: true,
-    systemPrompt: SUGGEST_SYSTEM_PROMPT,
+    systemPrompt: buildSystemPrompt(gitContext),
   });
   await resourceLoader.reload();
 
@@ -827,7 +861,12 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     return null;
   }
 
-  async function runGeneration(ctx: ExtensionContext, input: string, turnKey: string): Promise<void> {
+  async function runGeneration(
+    ctx: ExtensionContext,
+    input: string,
+    turnKey: string,
+    gitContext?: SuggestGitContext | null,
+  ): Promise<void> {
     // Abort any in-flight generation before starting a new one
     await abortActiveSession();
 
@@ -953,7 +992,9 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       return;
     }
 
-    const input = buildSuggestionInput(messages, ctx.cwd ?? process.cwd());
+    const gitContext = await gatherGitContext(ctx.cwd ?? process.cwd()).catch(() => null);
+    const workspaceSummary = await buildWorkspaceSummary(ctx.cwd ?? process.cwd()).catch(() => null);
+    const input = buildSuggestionInput(messages, ctx.cwd ?? process.cwd(), gitContext, workspaceSummary);
     if (!input) {
       clearSuggestion(ctx);
       return;
@@ -971,7 +1012,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
       if (!state.enabled || state.sourceTurnKey !== turnKey) return;
-      void runGeneration(ctx, input, turnKey);
+      void runGeneration(ctx, input, turnKey, gitContext);
     }, delay);
   });
 

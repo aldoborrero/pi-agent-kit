@@ -30,6 +30,17 @@ Generates a short “likely next user prompt” after each completed agent run a
   - `/suggest model clear`
   - `/suggest model provider/model-id`
 
+## Context awareness
+
+Each suggestion payload includes repository state gathered through the native
+VCS handle (git and jj): branch, uncommitted-change counts, and a bounded
+porcelain sample — plus a top-level workspace summary. When there are
+uncommitted changes and the conversation is consistent with them, the system
+prompt instructs the model to make the **first suggestion a commit message**
+(conventional commits, imperative, ≤72 chars); the suggestion filter exempts
+conventional-commit formats from the labeled-response rejection. Outside a
+repository the payload falls back to conversation-only context.
+
 ## Cost
 
 Suggest is enabled by default and issues one extra (small) model call per **new** turn
