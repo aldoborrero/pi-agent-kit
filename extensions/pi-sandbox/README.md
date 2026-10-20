@@ -48,19 +48,24 @@ shell (Rust, via `@aldoborrero/pi-natives`) instead of spawning a real bash per
 call. One persistent session keeps shell state across tool calls; timeout,
 abort, and errors quarantine it so the next call starts clean.
 
-**Off by default** — brush is POSIX sh with partial bash dialect support, so
-common bashisms may fail. Known dialect gaps (verified against the embedded
-session): `trap … EXIT` registers but never fires — in a persistent session
-EXIT means session exit, not command end, so one-shot cleanup patterns like
+**On by default** (dialect evaluation passed: full agent-command battery plus
+tough bashisms — arrays, associative arrays, process substitution, coproc,
+shopt — behave identically to real bash, and commands run ~15× faster than
+spawning bash). Known dialect gap (verified against the embedded session):
+`trap … EXIT` registers but never fires — in a persistent session EXIT means
+session exit, not command end, so one-shot cleanup patterns like
 `trap 'rm -rf $tmp' EXIT` silently skip cleanup (same accepted trade-off as
-the oh-my-pi integration). Enable when you accept that:
+the oh-my-pi integration).
+
+Opt out when you prefer a real bash per call:
 
 ```jsonc
 // .pi/settings.json (project) or ~/.pi/agent/settings.json (global)
-{ "nativeShell": { "enabled": true } }
+{ "nativeShell": { "enabled": false } }
 ```
 
-or set `PI_SHELL_NATIVE=1` (env wins over settings). When sandboxing is active
+or set `PI_SHELL_NATIVE=0` (env wins over settings; `1|true|yes` forces on).
+When sandboxing is active
 it always wins — the native backend only serves unsandboxed runs. If the native
 addon is unavailable the extension falls back to the standard local bash backend
 with a session-start warning.

@@ -57,7 +57,7 @@ d("createNativeShellOperations (native Shell present)", () => {
 		let threw: Error | null = null;
 		await ops.exec("sleep 5", process.cwd(), {
 			onData: () => {},
-			timeout: 400,
+			timeout: 1, // seconds — SDK contract
 		}).catch((error) => {
 			threw = error as Error;
 		});
@@ -69,13 +69,23 @@ d("createNativeShellOperations (native Shell present)", () => {
 		const ops = createNativeShellOperations(natives!);
 		await ops.exec("QUARANTINE_PROBE=1", process.cwd(), { onData: () => {} });
 		await ops
-			.exec("sleep 5", process.cwd(), { onData: () => {}, timeout: 300 })
+			.exec("sleep 5", process.cwd(), { onData: () => {}, timeout: 1 })
 			.catch(() => {});
 		const chunks: Buffer[] = [];
 		await ops.exec("echo ${QUARANTINE_PROBE:-clean}", process.cwd(), {
 			onData: (data) => chunks.push(data),
 		});
 		expect(Buffer.concat(chunks).toString().trim()).toBe("clean");
+	});
+
+	test("no timeout means no timeout (no brush 1s default)", async () => {
+		const ops = createNativeShellOperations(natives!);
+		const chunks: Buffer[] = [];
+		const result = await ops.exec("sleep 1.5; echo completed", process.cwd(), {
+			onData: (data) => chunks.push(data),
+		});
+		expect(result.exitCode).toBe(0);
+		expect(Buffer.concat(chunks).toString()).toContain("completed");
 	});
 
 	test("maps abort to the SDK abort contract", async () => {

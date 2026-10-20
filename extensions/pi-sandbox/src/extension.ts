@@ -87,20 +87,23 @@ function normalizeConfig(raw: unknown): Partial<SandboxConfig> {
 }
 
 /**
- * Resolve the opt-in native shell backend (persistent brush-core session).
+ * Resolve the native shell backend (persistent brush-core session).
  *
- * Priority: `PI_SHELL_NATIVE` env override > project settings > global
- * settings, under the `nativeShell` key (global + project):
+ * Default: **on** when the addon is available (fell back silently to the
+ * SDK local shell ops otherwise — pi-natives already surfaces a
+ * session-start diagnostic when its addon fails to load).
+ *
+ * Priority: `PI_SHELL_NATIVE` env override > settings > default-on.
+ * Settings under the `nativeShell` key (global + project):
  *
  * ```jsonc
  * // .pi/settings.json or ~/.pi/agent/settings.json
- * { "nativeShell": { "enabled": true } }
+ * { "nativeShell": { "enabled": false } }  // opt out
  * ```
  *
- * Off by default: brush is POSIX sh with partial bash dialect support, so
- * the native backend stays opt-in until evaluated.
+ * Env: `PI_SHELL_NATIVE=1|true|yes` forces on; any other value forces off.
  */
-function resolveNativeShellEnabled(cwd: string): boolean {
+export function resolveNativeShellEnabled(cwd: string): boolean {
 	const env = process.env.PI_SHELL_NATIVE;
 	if (env !== undefined) return /^(1|true|yes)$/i.test(env);
 	try {
@@ -109,10 +112,12 @@ function resolveNativeShellEnabled(cwd: string): boolean {
 			(settings?.nativeShell as { enabled?: unknown } | undefined)?.enabled;
 		const project = read(manager.getProjectSettings() as Record<string, unknown>);
 		if (project !== undefined) return project === true;
-		return read(manager.getGlobalSettings() as Record<string, unknown>) === true;
+		const global = read(manager.getGlobalSettings() as Record<string, unknown>);
+		if (global !== undefined) return global === true;
 	} catch {
-		return false;
+		// settings unavailable — default below applies
 	}
+	return true;
 }
 
 function createBashToolOptions(cwd: string, nativeShellEnabled: boolean): { operations?: BashOperations } | undefined {
@@ -347,13 +352,16 @@ export default function (pi: ExtensionAPI) {
 		projectCwd = ctx.cwd;
 		nativeShellEnabled = resolveNativeShellEnabled(ctx.cwd);
 		if (nativeShellEnabled && !natives?.Shell) {
-			ctx.ui.notify(
-				"nativeShell is enabled but @oh-my-pi/pi-natives is unavailable — using the standard local bash backend.",
-				"warning",
-			);
+			// Only notify when the user explicitly asked for it — with the
+			// default-on path, pi-natives already surfaces its own
+			// session-start diagnostic when the addon fails to load.
+			if (process.env.PI_SHELL_NATIVE !== undefined) {
+				ctx.ui.notify(
+					"nativeShell requested but @oh-my-pi/pi-natives is unavailable — using the standard local bash backend.",
+					"warning",
+				);
+			}
 			nativeShellEnabled = false;
-		} else if (nativeShellEnabled) {
-			ctx.ui.notify("bash backend: native shell (persistent brush session)", "info");
 		}
 		cachedBash = createBashTool(projectCwd, createBashToolOptions(projectCwd, nativeShellEnabled));
 		const noSandbox = pi.getFlag("no-sandbox") as boolean;
