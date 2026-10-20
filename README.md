@@ -26,7 +26,7 @@ Restart Pi afterwards. The aggregator (`pi-agent-kit`) activates every local ext
 
 ## What you get
 
-- **16 extensions** loaded through the aggregator — structural search, enhanced editing, sandboxing, Bitwarden, suggestions, voice, and more
+- **15 extensions** loaded through the aggregator — structural search, enhanced editing, sandboxing, suggestions, voice, and more
 - **2 extensions** loaded from their own entries: [`@bacnh85/pi-subagent`](https://www.npmjs.com/package/@bacnh85/pi-subagent) (task delegation) and [`@quintinshaw/pi-dynamic-workflows`](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows) (deterministic workflow orchestration)
 - **6 agents** (`agents/`): explore, plan, build, review, debug, brainstorm — lean markdown system prompts that inherit the session model
 - **5 prompt templates** (`prompts/`): brainstorm, debug, explore, full-cycle, review — loaded as slash commands
@@ -68,7 +68,6 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 
 | Extension | Source | Description |
 |-----------|--------|-------------|
-| [`pi-bitwarden`](extensions/pi-bitwarden) | Mine | Secure vault access via rbw — `bw_get`/`bw_list` with password masking |
 | [`pi-sandbox`](extensions/pi-sandbox) | Mine | OS-level sandboxing for bash commands |
 | [`pi-rewind-hook`](https://github.com/nicobailon/pi-rewind-hook) | External | File-state rewind points, restorable from `/fork` and `/tree` |
 
@@ -140,7 +139,6 @@ direnv allow
 | `EXA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `PERPLEXITY_API_KEY`, `FIRECRAWL_API_KEY`, `SEARXNG_BASE_URL` | pi-web-access | External | Search providers — any one of them |
 | `PI_SUGGEST_MODEL` | pi-suggest | Mine | Override the next-prompt suggestion model |
 | `PI_UNTIL_MAX_ITERATIONS` | pi-until | Mine | Cap iterations for the `/until` loop |
-| `RBW_TIMEOUT_MS` / `RBW_UNLOCK_TIMEOUT_MS` | pi-bitwarden | Mine | rbw command / unlock timeouts |
 | `PI_PHOENIX_ENABLE` | pi-phoenix | External | Opt-in tracing — off by default; `true` to enable |
 | `PI_HINDSIGHT_ENABLED` | pi-hindsight | External | Opt-in memory — off by default; `true` to enable |
 

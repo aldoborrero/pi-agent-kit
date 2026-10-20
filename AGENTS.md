@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-pi-agent-kit is a toolkit for AI coding agents providing extensions, themes, and specialized agents for pi-coding-agent and related agent runtimes. It ships as a Bun workspace of 18 local `@aldoborrero/pi-*` packages. External packages provide workflows (`@quintinshaw/pi-dynamic-workflows`), subagents (`@bacnh85/pi-subagent`), rewind (`pi-rewind-hook`), structured questions (`@juicesharp/rpiv-ask-user-question`), web access (`pi-web-access`), notifications (`@bacnh85/pi-notify`), side conversations (`pi-btw`), tracing (`pi-phoenix`), and long-term memory (`@luxusai/pi-hindsight`).
+pi-agent-kit is a toolkit for AI coding agents providing extensions, themes, and specialized agents for pi-coding-agent and related agent runtimes. It ships as a Bun workspace of 17 local `@aldoborrero/pi-*` packages. External packages provide workflows (`@quintinshaw/pi-dynamic-workflows`), subagents (`@bacnh85/pi-subagent`), rewind (`pi-rewind-hook`), structured questions (`@juicesharp/rpiv-ask-user-question`), web access (`pi-web-access`), notifications (`@bacnh85/pi-notify`), side conversations (`pi-btw`), tracing (`pi-phoenix`), and long-term memory (`@luxusai/pi-hindsight`).
 
 ## Directory Structure
 
 ```
 agent-kit/
 ├── agents/           # Agent definitions (explore, plan, build, review, debug, brainstorm)
-├── extensions/       # 18 TypeScript packages, each an @aldoborrero/pi-* workspace package
+├── extensions/       # 17 TypeScript packages, each an @aldoborrero/pi-* workspace package
 │   ├── pi-agent-kit/ # Aggregator — imports every member extension + pi-rewind-hook
 │   ├── pi-natives/   # Rust-accelerated tools + shared native loader (@oh-my-pi/pi-natives)
 │   ├── pi-common/    # Shared helpers (createUiColors, etc.) — no _shared/ dir exists
@@ -56,7 +56,6 @@ direnv allow
 | `SEARXNG_BASE_URL` | pi-web-access | Base URL for a SearXNG instance with JSON enabled |
 | `PI_SUGGEST_MODEL` | pi-suggest | Override the next-prompt suggestion model |
 | `PI_UNTIL_MAX_ITERATIONS` | pi-until | Cap iterations for the `/until` loop |
-| `RBW_TIMEOUT_MS` / `RBW_UNLOCK_TIMEOUT_MS` | pi-bitwarden | rbw command / unlock timeouts |
 | `PI_PHOENIX_ENABLE` | pi-phoenix | Opt-in tracing — off by default in this kit; `true` to enable |
 | `PHOENIX_COLLECTOR_ENDPOINT` | pi-phoenix | Phoenix server URL (default `http://localhost:6006`) |
 | `PHOENIX_API_KEY` | pi-phoenix | API key for Phoenix Cloud |
@@ -76,7 +75,6 @@ direnv allow
 | `/suggest` | pi-suggest | Toggle/manage next-prompt suggestions |
 | `/diff` | pi-diff | View uncommitted changes (tuicr/delta/git diff) |
 | `/voice [config\|provider\|lang\|mode\|cancel\|status]` | pi-voice | Toggle recording or configure speech-to-text |
-| `/bw`, `/rbw` | pi-bitwarden | Bitwarden vault management via rbw |
 | `/sandbox [on\|off]` | pi-sandbox | Toggle OS-level bash sandboxing or show status |
 | `/context` | pi-context | Show loaded context overview (tokens, extensions, cost) |
 | `/btw <question>` | pi-btw | Parallel side conversation in a real sub-session with tool access (`/side` alias; `/btw:new`, `/btw:tangent`, `/btw:ask`, `/btw:clear`, `/btw:model`, `/btw:inject`, `/btw:summarize`) |
@@ -105,7 +103,6 @@ direnv allow
 | `ask_user_question` | @juicesharp/rpiv-ask-user-question | Structured questions with multi-select, previews, and notes |
 | `tuicr` | pi-tuicr | Interactive code review with feedback capture |
 | `edit` | pi-edit | Replaces the built-in edit tool (single, `multi` batch, and Codex-style patch modes) |
-| `bw_get` / `bw_list` | pi-bitwarden | Secure vault access via rbw (passwords masked, require confirmation) |
 | `hindsight_*` | pi-hindsight | Long-term memory tools (`hindsight_recall`, `hindsight_retain`, `hindsight_reflect`, `hindsight_status`, …) |
 | `signal_loop_success` | pi-until | Signal that an `/until` loop's condition has been met |
 | `bash` (sandboxed) | pi-sandbox | Re-registers the built-in bash tool wrapped in OS-level sandboxing when enabled |

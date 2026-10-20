@@ -136,14 +136,14 @@ describe("resolveContextUsage", () => {
 
 describe("renderFooter", () => {
 	test("keeps a status inline when it fits", () => {
-		const lines = render(footerState({ statuses: [status("bitwarden", "rbw:locked")] }), 120);
+		const lines = render(footerState({ statuses: [status("vault", "vault:locked")] }), 120);
 
 		expect(lines).toHaveLength(1);
-		expect(lines[0]).toContain("rbw:locked");
+		expect(lines[0]).toContain("vault:locked");
 	});
 
 	test("moves statuses to a second line rather than hiding them", () => {
-		const statuses = [status("bitwarden", "rbw:locked"), status("rewind", "6 points / 1 snapshots")];
+		const statuses = [status("vault", "vault:locked"), status("rewind", "6 points / 1 snapshots")];
 		const state = footerState({
 			workspace: { ...footerState().workspace, branch: "feature/a-rather-long-branch-name" },
 			statuses,
@@ -152,7 +152,7 @@ describe("renderFooter", () => {
 		for (const width of [110, 80, 56]) {
 			const lines = render(state, width);
 			expect(lines).toHaveLength(2);
-			expect(lines[1]).toContain("rbw:locked");
+			expect(lines[1]).toContain("vault:locked");
 			expect(lines[1]).toContain("6 points / 1 snapshots");
 			expect(lines[1]).not.toContain("+");
 			for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
@@ -162,7 +162,7 @@ describe("renderFooter", () => {
 	test("keeps the same height while a turn streams and after it ends", () => {
 		const state = footerState({
 			session: { totals: { input: 22_000, output: 17_000, cacheRead: 26_000, cacheWrite: 22_000, cost: 0 } },
-			statuses: [status("bitwarden", "rbw:locked"), status("rewind", "6 points / 1 snapshots")],
+			statuses: [status("vault", "vault:locked"), status("rewind", "6 points / 1 snapshots")],
 		});
 
 		for (const width of [200, 170, 150, 130, 120, 100]) {
@@ -176,11 +176,11 @@ describe("renderFooter", () => {
 	});
 
 	test("puts statuses on their own line when asked to, even if they would fit", () => {
-		const lines = render(footerState({ statuses: [status("bitwarden", "rbw:locked")] }), 120, "always");
+		const lines = render(footerState({ statuses: [status("vault", "vault:locked")] }), 120, "always");
 
 		expect(lines).toHaveLength(2);
-		expect(lines[0]).not.toContain("rbw:locked");
-		expect(lines[1]).toContain("rbw:locked");
+		expect(lines[0]).not.toContain("vault:locked");
+		expect(lines[1]).toContain("vault:locked");
 	});
 
 	test("stays on one line without statuses", () => {
