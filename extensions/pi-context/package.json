@@ -30,5 +30,8 @@
     "directory": "extensions/pi-context"
   },
   "author": "aldoborrero",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@aldoborrero/pi-natives": "*"
+  }
 }

@@ -1,5 +1,9 @@
 import * as Diff from "diff";
+import { loadNatives } from "@aldoborrero/pi-natives/src/natives.ts";
 import type { DiffPreview, FileChange, FileDiff } from "./types.ts";
+
+// Native structuredPatchHunks (Rust) when available; jsdiff otherwise.
+const natives = await loadNatives();
 
 // Bounds apply before presentation/highlighting, not just to visible rows.
 export const DIFF_TIMEOUT_MS = 15;
@@ -206,6 +210,29 @@ export function computePreview(
   // A new or deleted file needs no search at all.
   if (oldContent === "" || newContent === "")
     return blockPreview(oldContent, newContent, context, chars);
+  // Native path first (Rust myers — fast, but the MAX_EDIT_DISTANCE product
+  // budget still applies: pathological diffs get the capped block preview,
+  // not a giant hunk dump). Edit-script length = +/- lines across hunks.
+  if (natives) {
+    try {
+      const hunks = natives.structuredPatchHunks(oldContent, newContent, context);
+      const editDistance = hunks.reduce(
+        (sum, h) =>
+          sum + h.lines.filter((l) => l.startsWith("+") || l.startsWith("-")).length,
+        0,
+      );
+      if (hunks.length > 0 && editDistance <= MAX_EDIT_DISTANCE) {
+        return fromHunks(hunks as unknown as Diff.StructuredPatch["hunks"], chars);
+      }
+      if (hunks.length > 0 && editDistance > MAX_EDIT_DISTANCE) {
+        return blockPreview(oldContent, newContent, context, chars);
+      }
+      // Empty hunks on differing inputs (e.g. trailing-newline-only change):
+      // fall through to jsdiff.
+    } catch {
+      // fall through to jsdiff
+    }
+  }
   const patch = Diff.structuredPatch(
     "",
     "",

@@ -19,7 +19,10 @@ import { createUiColors } from "@aldoborrero/pi-common";
 import { Container, Key, Text, matchesKey, type Component, type TUI } from "@earendil-works/pi-tui";
 import os from "node:os";
 import path from "node:path";
+import { loadNatives } from "@aldoborrero/pi-natives/src/natives.ts";
 import { once } from "./once.ts";
+
+const natives = await loadNatives();
 
 function formatUsd(cost: number): string {
 	if (!Number.isFinite(cost) || cost <= 0) return "$0.00";
@@ -29,7 +32,15 @@ function formatUsd(cost: number): string {
 }
 
 function estimateTokens(text: string): number {
-	// Deliberately fuzzy (good enough for “how big-ish is this”).
+	// Native tokenizer (Rust, O200k base) when available; else deliberately
+	// fuzzy length/4 (good enough for “how big-ish is this”).
+	if (natives) {
+		try {
+			return natives.countTokens(text);
+		} catch {
+			// fall through to estimate
+		}
+	}
 	return Math.max(0, Math.ceil(text.length / 4));
 }
 
