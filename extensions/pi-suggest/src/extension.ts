@@ -470,6 +470,7 @@ async function generateSuggestion(
   ctx: ExtensionContext,
   currentModel: Model<any> | undefined,
   input: string,
+  gitContext?: SuggestGitContext | null,
   onSession?: (session: { abort(): Promise<void>; dispose(): void }) => void,
   isCancelled?: () => boolean,
 ): Promise<{
@@ -910,6 +911,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
         ctx,
         ctx.model,
         input,
+        gitContext,
         (session) => {
           mySession = session;
           // Claim the active slot only while this generation is still current;
