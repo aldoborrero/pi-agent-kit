@@ -10,7 +10,12 @@ let gitDir: string;
 let plainDir: string;
 
 function git(cwd: string, args: string): void {
-	const proc = Bun.spawnSync(["git", ...args.split(" ")], { cwd, stdout: "pipe", stderr: "pipe" });
+	// commit.gpgsign would route test commits through the user's FIDO signing
+	// hook (gfh), which blocks on a hardware touch and makes the suite flaky.
+	const proc = Bun.spawnSync(
+		["git", "-c", "commit.gpgsign=false", ...args.split(" ")],
+		{ cwd, stdout: "pipe", stderr: "pipe" },
+	);
 	if (proc.exitCode !== 0) throw new Error(new TextDecoder().decode(proc.stderr));
 }
 
