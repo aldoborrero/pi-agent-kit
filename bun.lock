@@ -251,6 +251,9 @@
     "extensions/pi-voice": {
       "name": "@aldoborrero/pi-voice",
       "version": "1.0.0",
+      "dependencies": {
+        "@aldoborrero/pi-natives": "*",
+      },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
         "@earendil-works/pi-ai": "*",
