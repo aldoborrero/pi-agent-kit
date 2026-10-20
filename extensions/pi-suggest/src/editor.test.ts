@@ -60,3 +60,84 @@ describe("SuggestEditor generating state", () => {
 		expect(innerInputs).toBe(1);
 	});
 });
+describe("SuggestEditor cancel-on-type", () => {
+	function makeChain(): {
+		suggest: SuggestEditor;
+		innerCalls: () => number;
+		assignHostOnChange: (handler: ((text: string) => void) | undefined) => void;
+		fireInnerChange: (text: string) => void;
+	} {
+		let innerInputs = 0;
+		let chained: ((text: string) => void) | undefined;
+		const editor = {
+			getText: () => "",
+			setText: () => {},
+			handleInput: () => {
+				innerInputs++;
+			},
+			render: () => [],
+			invalidate: () => {},
+			// Inner editor: whoever assigns onChange lands here (the chain end).
+			set onChange(handler: ((text: string) => void) | undefined) {
+				chained = handler;
+			},
+			get onChange() {
+				return chained;
+			},
+		} as unknown as import("@earendil-works/pi-tui").EditorComponent;
+		const suggest = makeEditor(editor);
+		return {
+			suggest,
+			innerCalls: () => innerInputs,
+			// The host assigns its handler on the OUTERMOST decorator (this wrapper).
+			assignHostOnChange: (handler) => {
+				(suggest as unknown as { onChange: (h: ((text: string) => void) | undefined) => void }).onChange = handler;
+			},
+			// The inner editor firing change = the wrapped chain executing.
+			fireInnerChange: (text) => chained?.(text),
+		};
+	}
+
+	test("host onChange assignment installs the observer in the chain", () => {
+		const chain = makeChain();
+		let observed = 0;
+		chain.assignHostOnChange(() => {});
+		chain.suggest.setOnUserInput(() => {
+			observed++;
+		});
+
+		chain.fireInnerChange("hello");
+		expect(observed).toBe(1);
+		expect(chain.innerCalls()).toBe(0); // onChange does not touch handleInput
+	});
+
+	test("observer survives host handler reassignment", () => {
+		const chain = makeChain();
+		let observed = 0;
+		chain.assignHostOnChange(() => {});
+		chain.suggest.setOnUserInput(() => {
+			observed++;
+		});
+
+		chain.fireInnerChange("a");
+		expect(observed).toBe(1);
+
+		// The host replaces its handler (pi does across session events).
+		chain.assignHostOnChange(() => {});
+		chain.fireInnerChange("b");
+		expect(observed).toBe(2);
+	});
+
+	test("removing the host handler clears the chain but keeps wrapping safe", () => {
+		const chain = makeChain();
+		let observed = 0;
+		chain.assignHostOnChange(() => {});
+		chain.suggest.setOnUserInput(() => {
+			observed++;
+		});
+
+		chain.assignHostOnChange(undefined);
+		chain.fireInnerChange("c");
+		expect(observed).toBe(0); // chain cleared, no crash
+	});
+});
