@@ -25,7 +25,7 @@ decision does not have to be re-litigated.
 | `fuzzyFind` | Different semantics from the glob-based `find` built-in; replacing `find` with fuzzy matching would change the model's contract, not improve it |
 | `FileLock` | `pi-loop`'s `loop-lock.ts` protocol (heartbeat, staleness, PID liveness, TOCTOU hardening) is well-tested; FileLock would be a marginal rewrite win |
 | `EditSession` | Adopted (opt-in) as an alternative executor for the native `edits[]` payload — Rust matching, session snapshots with the no-op loop guard, auto-generated blocking; batch semantics differ from the kit contract (incremental vs original-content), so default stays `pi` (PR #20) |
-| `astEdit` | Still deferred: no consumer for ast-grep rewrite modes in the kit today (candidate for a future pi-edit semantic mode) |
+| `astEdit` | Adopted: the `edit` tool's `ast` param runs ast-grep rewrite rules (pattern → rewrite, metavariables) with a mandatory dry-run pass, auto-generated guard over touched files, and `apply: true` to write (PR #22) |
 | Hashline mode | Adopted (opt-in, `PI_EDIT_HASHLINE` / `nativeEdit.hashline`): line-anchored `PUT`/`CUT`/`REM`/`MV` DSL with stale-snapshot rejection; ships with a deliberate `read` replacement that prepends the `[path#TAG]` snapshot header |
 | `highlightCode` | No consumer: `pi-diff` renders through delta/CLI, and the TUI syntax-rendering surface is a separate project |
 | `vcs*` (git/jj) | Overlaps `pi-rewind-hook` (checkpoints per prompt/turn); introducing a second checkpoint source would split state |

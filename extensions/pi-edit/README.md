@@ -315,6 +315,19 @@ Enable with `PI_EDIT_HASHLINE=1` or `nativeEdit.hashline: true` in settings
 same schema, same output, plus the `[path#TAG]` header on text reads. Off by
 default because it changes the `read` output the model sees.
 
+## Semantic Rewrites (`ast` param)
+
+The `ast` parameter runs ast-grep rewrite rules through the native engine:
+pattern → replacement with metavariables (`$A`, `$$$`), across a file or
+directory (with glob filter, language override). Matching is structural —
+it cannot be fooled by comments or strings the way text matching can.
+
+Always a **dry run first**: the result previews every change (before/after
+per match with line numbers) and the auto-generated guard runs over the
+touched files. Pass `apply: true` to write; the tool reports counts per file
+and flags when the safety cap was hit. Available whenever the native addon
+is present (no extra gate — no read output changes).
+
 ## Native Engine (opt-in) and Auto-Generated Guard
 
 The kit integrates oh-my-pi's Rust edit engine (`EditSession`/`EditStore` from
