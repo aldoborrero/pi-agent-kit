@@ -36,6 +36,10 @@ decision does not have to be re-litigated.
   oh-my-pi accepts.
 - brush mimics `BASH_VERSION` 5.2.x; dialect gaps surface as normal command
   failures the agent can retry differently.
+- Background jobs: `cmd &` returns immediately and does not block the run
+  (verified), but shell job control is inert — `$!`, `jobs`, and `wait` are
+  no-ops, so scripts cannot synchronize on background children. Use explicit
+  files/pids for coordination.
 
 ## Conventions
 
