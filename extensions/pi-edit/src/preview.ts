@@ -266,6 +266,52 @@ export function previewFromPatch(patch: string): DiffPreview {
   }
 }
 
+/**
+ * Parse the native engine's line-numbered diff format:
+ *
+ * ```
+ *  1|alpha   context (old and new number coincide in this rendering)
+ * -2|beta    removed from the old file at line 2
+ * +2|BETA    added to the new file at line 2
+ * ```
+ *
+ * Non-matching lines become separators; added/removed count every changed
+ * line even when the display is bounded by MAX_PREVIEW_CHARS upstream.
+ */
+export function previewFromNumberedDiff(diff: string): DiffPreview {
+  const lines: DiffPreview["lines"] = [];
+  let added = 0;
+  let removed = 0;
+  for (const raw of diff.split("\n")) {
+    const marker = raw[0];
+    const match = /^( |\+|-)\s*(\d+)\|(.*)$/.exec(raw);
+    if (!match) {
+      if (raw.trim().length > 0) {
+        lines.push({ type: "sep", oldNum: null, newNum: null, content: raw });
+      }
+      continue;
+    }
+    const num = Number.parseInt(match[2]!, 10);
+    const content = match[3]!;
+    if (marker === "+") {
+      added++;
+      lines.push({ type: "add", oldNum: null, newNum: num, content });
+    } else if (marker === "-") {
+      removed++;
+      lines.push({ type: "del", oldNum: num, newNum: null, content });
+    } else {
+      lines.push({ type: "ctx", oldNum: num, newNum: num, content });
+    }
+  }
+  return {
+    lines: lines.slice(0, MAX_PREVIEW_LINES),
+    added,
+    removed,
+    chars: diff.length,
+    ...(lines.length > MAX_PREVIEW_LINES ? { omitted: "Diff preview truncated" } : {}),
+  };
+}
+
 export function firstChangedLine(preview: DiffPreview): number | undefined {
   let nextNew = 1;
   for (const line of preview.lines) {

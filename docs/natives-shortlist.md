@@ -24,7 +24,8 @@ decision does not have to be re-litigated.
 |---|---|
 | `fuzzyFind` | Different semantics from the glob-based `find` built-in; replacing `find` with fuzzy matching would change the model's contract, not improve it |
 | `FileLock` | `pi-loop`'s `loop-lock.ts` protocol (heartbeat, staleness, PID liveness, TOCTOU hardening) is well-tested; FileLock would be a marginal rewrite win |
-| `EditSession` / `astEdit` | `pi-edit` already took the valuable part (`structuredPatchHunks`); the fuzzy-edit session API has no consumer left in the kit |
+| `EditSession` | Adopted (opt-in) as an alternative executor for the native `edits[]` payload — Rust matching, session snapshots with the no-op loop guard, auto-generated blocking; batch semantics differ from the kit contract (incremental vs original-content), so default stays `pi` (PR #20) |
+| `astEdit` | Still deferred: no consumer for ast-grep rewrite modes in the kit today (candidate for a future pi-edit semantic mode) |
 | `highlightCode` | No consumer: `pi-diff` renders through delta/CLI, and the TUI syntax-rendering surface is a separate project |
 | `vcs*` (git/jj) | Overlaps `pi-rewind-hook` (checkpoints per prompt/turn); introducing a second checkpoint source would split state |
 | `executeShell` (one-shot) | Used only where oh-my-pi uses it (config interpolation); agent-facing execution goes through the persistent `Shell` |

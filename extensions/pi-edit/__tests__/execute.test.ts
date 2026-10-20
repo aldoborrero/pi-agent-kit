@@ -43,6 +43,9 @@ function makeStub(): { pi: ExtensionAPI; getTool: () => CapturedTool } {
     registerTool(t: CapturedTool) {
       captured = t;
     },
+    on() {
+      return () => {};
+    },
     events: { emit() {} },
   } as unknown as ExtensionAPI;
 
