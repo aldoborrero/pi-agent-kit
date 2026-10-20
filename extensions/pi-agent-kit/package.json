@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "@aldoborrero/pi-alias": "*",
-    "@aldoborrero/pi-ast-grep": "*",
+    "@aldoborrero/pi-natives": "*",
     "@aldoborrero/pi-bitwarden": "*",
     "@aldoborrero/pi-codex": "*",
     "@aldoborrero/pi-common": "*",

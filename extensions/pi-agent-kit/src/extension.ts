@@ -14,7 +14,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerAlias from "@aldoborrero/pi-alias/src/extension.ts";
-import registerAstGrep from "@aldoborrero/pi-ast-grep/src/extension.ts";
+import registerNatives from "@aldoborrero/pi-natives/src/extension.ts";
 import registerBitwarden from "@aldoborrero/pi-bitwarden/src/extension.ts";
 import registerBtw from "pi-btw/extensions/btw.ts";
 import registerCodex from "@aldoborrero/pi-codex/src/extension.ts";
@@ -41,7 +41,7 @@ type Factory = (pi: never) => void;
 
 const MEMBERS: Factory[] = [
 	registerAlias,
-	registerAstGrep,
+	registerNatives,
 	registerBitwarden,
 	registerBtw,
 	registerCodex,

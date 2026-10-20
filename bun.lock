@@ -33,7 +33,6 @@
       "version": "1.0.0",
       "dependencies": {
         "@aldoborrero/pi-alias": "*",
-        "@aldoborrero/pi-ast-grep": "*",
         "@aldoborrero/pi-bitwarden": "*",
         "@aldoborrero/pi-codex": "*",
         "@aldoborrero/pi-common": "*",
@@ -43,6 +42,7 @@
         "@aldoborrero/pi-edit": "*",
         "@aldoborrero/pi-footer": "*",
         "@aldoborrero/pi-loop": "*",
+        "@aldoborrero/pi-natives": "*",
         "@aldoborrero/pi-sandbox": "*",
         "@aldoborrero/pi-suggest": "*",
         "@aldoborrero/pi-themes": "*",
@@ -85,16 +85,6 @@
         "@earendil-works/pi-tui": "*",
       },
     },
-    "extensions/pi-ast-grep": {
-      "name": "@aldoborrero/pi-ast-grep",
-      "version": "1.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": "*",
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
     "extensions/pi-bitwarden": {
       "name": "@aldoborrero/pi-bitwarden",
       "version": "1.0.0",
@@ -128,6 +118,9 @@
     "extensions/pi-context": {
       "name": "@aldoborrero/pi-context",
       "version": "1.0.0",
+      "dependencies": {
+        "@aldoborrero/pi-natives": "*",
+      },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
         "@earendil-works/pi-ai": "*",
@@ -159,6 +152,7 @@
       "name": "@aldoborrero/pi-edit",
       "version": "1.0.0",
       "dependencies": {
+        "@aldoborrero/pi-natives": "*",
         "@xynogen/pix-pretty": "*",
         "diff": "^8.0.4",
       },
@@ -185,6 +179,20 @@
       "version": "1.0.0",
       "dependencies": {
         "croner": "^9.0.0",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": "*",
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+      },
+    },
+    "extensions/pi-natives": {
+      "name": "@aldoborrero/pi-natives",
+      "version": "1.0.0",
+      "dependencies": {
+        "@oh-my-pi/pi-natives": "18.12.3",
+        "@sinclair/typebox": "latest",
       },
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
@@ -256,8 +264,6 @@
 
     "@aldoborrero/pi-alias": ["@aldoborrero/pi-alias@workspace:extensions/pi-alias"],
 
-    "@aldoborrero/pi-ast-grep": ["@aldoborrero/pi-ast-grep@workspace:extensions/pi-ast-grep"],
-
     "@aldoborrero/pi-bitwarden": ["@aldoborrero/pi-bitwarden@workspace:extensions/pi-bitwarden"],
 
     "@aldoborrero/pi-codex": ["@aldoborrero/pi-codex@workspace:extensions/pi-codex"],
@@ -275,6 +281,8 @@
     "@aldoborrero/pi-footer": ["@aldoborrero/pi-footer@workspace:extensions/pi-footer"],
 
     "@aldoborrero/pi-loop": ["@aldoborrero/pi-loop@workspace:extensions/pi-loop"],
+
+    "@aldoborrero/pi-natives": ["@aldoborrero/pi-natives@workspace:extensions/pi-natives"],
 
     "@aldoborrero/pi-sandbox": ["@aldoborrero/pi-sandbox@workspace:extensions/pi-sandbox"],
 
@@ -527,6 +535,20 @@
     "@mozilla/readability": ["@mozilla/readability@0.6.0", "", {}, "sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ=="],
 
     "@narumitw/pi-goal": ["@narumitw/pi-goal@0.7.0", "", { "dependencies": { "typebox": "^1.1.37" } }, "sha512-k/ygsr8b1pdHMIxFz5DeOjb4IVmImGgVko3DX6xJKyYXvvqEhG/YU87nIFByEVcPQCqCC8oTXjKXI3DRV9g1VQ=="],
+
+    "@oh-my-pi/pi-natives": ["@oh-my-pi/pi-natives@18.12.3", "", { "optionalDependencies": { "@oh-my-pi/pi-natives-darwin-arm64": "18.12.3", "@oh-my-pi/pi-natives-darwin-x64": "18.12.3", "@oh-my-pi/pi-natives-linux-arm64": "18.12.3", "@oh-my-pi/pi-natives-linux-x64": "18.12.3", "@oh-my-pi/pi-natives-win32-arm64": "18.12.3", "@oh-my-pi/pi-natives-win32-x64": "18.12.3" } }, "sha512-H6kg79bwKfOMUDybCuy9kzx6IvQnMvSW97BAuZbwlaLM7oE30kMoo2uO9i1cLJLfs5A0p5+MoPbitkTKr3doQQ=="],
+
+    "@oh-my-pi/pi-natives-darwin-arm64": ["@oh-my-pi/pi-natives-darwin-arm64@18.12.3", "", { "os": "darwin", "cpu": "arm64" }, "sha512-p0OwYM93njpqd2W7QiZ8lQg6iXZ6zm0ZNKKpbYIv1cAuHdMKHhl5be/CcMBW3fbXZAGriuJwr73x90VhdGvlPA=="],
+
+    "@oh-my-pi/pi-natives-darwin-x64": ["@oh-my-pi/pi-natives-darwin-x64@18.12.3", "", { "os": "darwin", "cpu": "x64" }, "sha512-KxkJkgEMq+pSiDcXuzcvsKHR83oyIhKJeib45H/7kvuCaonKmkYhv7tWOLJmYaLGCD/jMbB2gIumbysuIaGGAg=="],
+
+    "@oh-my-pi/pi-natives-linux-arm64": ["@oh-my-pi/pi-natives-linux-arm64@18.12.3", "", { "os": "linux", "cpu": "arm64" }, "sha512-i6EfGqnUAiUQreX0lW9EGpOk3s+UPjeGvr9Uze7opUbEFJIJsNsvw7rRY8PJ+hzhOi+uCY4OxcuviRiDuvwWpA=="],
+
+    "@oh-my-pi/pi-natives-linux-x64": ["@oh-my-pi/pi-natives-linux-x64@18.12.3", "", { "os": "linux", "cpu": "x64" }, "sha512-YJKJo5MlqDeuISSUhxOPyDMp7VNHBZkboBTp/ZkmTq9ExetySbSg1lcrDyZrtONchXIQ8vJm1MCh1f0biVJ4uA=="],
+
+    "@oh-my-pi/pi-natives-win32-arm64": ["@oh-my-pi/pi-natives-win32-arm64@18.12.3", "", { "os": "win32", "cpu": "arm64" }, "sha512-4fLO8Ae5yBphfrsrQvBGBJbRrXsHzEJxvDYqcnzJj6vHNqpVw+I6TZZZ5Cysr9JecCz9QvvYGZpl+6X1/ZTfQQ=="],
+
+    "@oh-my-pi/pi-natives-win32-x64": ["@oh-my-pi/pi-natives-win32-x64@18.12.3", "", { "os": "win32", "cpu": "x64" }, "sha512-XKvp14O9hijtr+xRjBi+7eMIhxTh89ewnn4ObeWbu3+ORnt9XFKMTPul3BkMbaF/cm0uVBXeP8MzbkpOOf7Tpw=="],
 
     "@opentelemetry/api": ["@opentelemetry/api@1.9.1", "", {}, "sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q=="],
 
@@ -1421,6 +1443,8 @@
     "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
+
+    "@aldoborrero/pi-natives/@sinclair/typebox": ["@sinclair/typebox@0.34.52", "", {}, "sha512-XiMQh7qqVlxZzcVD+kkGMNGMzcTrDMLWI7S4x7z1MkCkbDPrekpZXEUK0eZqZFMuHQg2a2DZOcDIh9o5v3Gonw=="],
 
     "@anthropic-ai/sandbox-runtime/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
