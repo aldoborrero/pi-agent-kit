@@ -18,6 +18,7 @@
  */
 
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
+import { buildShellFilesystem } from "./shell-vfs.ts";
 
 /** The addon module, as returned by loadNatives(). */
 export type NativesModule = typeof import("@oh-my-pi/pi-natives");
@@ -105,7 +106,7 @@ export function createNativeShellOperations(
 			let broken = false;
 			try {
 				const result = await shell.run(
-					{ command, cwd, env, timeoutMs: timeout, signal },
+					{ command, cwd, env, timeoutMs: timeout, signal, filesystem: buildShellFilesystem() },
 					(error, chunk) => {
 						if (error || !acceptingChunks) return;
 						onData(Buffer.from(chunk, "utf8"));
