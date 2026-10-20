@@ -71,7 +71,10 @@ export function resetEditStore(): void {
 // anchors; replace-mode edits carry line content, so provenance is not
 // required. No internal-URL router in this kit: schemes are empty.
 
-function enginePolicy(cwd: string): import("@oh-my-pi/pi-natives").EditPolicy {
+function enginePolicy(
+	cwd: string,
+	overrides?: Partial<import("@oh-my-pi/pi-natives").EditPolicy>,
+): import("@oh-my-pi/pi-natives").EditPolicy {
 	return {
 		cwd,
 		mode: "replace",
@@ -86,6 +89,7 @@ function enginePolicy(cwd: string): import("@oh-my-pi/pi-natives").EditPolicy {
 		planWritableRoots: [],
 		homeDir: homedir(),
 		rawInput: false,
+		...overrides,
 	};
 }
 
@@ -263,5 +267,92 @@ export async function executeOhMyPiEdits(
 		};
 	} finally {
 		session.close();
+	}
+}
+
+/**
+ * Run a hashline payload (`{input}` DSL: `[path#TAG]` headers + `PUT`/`CUT`/
+ * `REM`/`MV` hunks) through the native engine. Anchors are validated against
+ * snapshots recorded by the `read` wrapper — never-read files are rejected
+ * with a model-facing message telling the model to read first.
+ */
+export async function executeOhMyPiHashline(
+	pi: ExtensionAPI,
+	plan: { input: string },
+	cwd: string,
+): Promise<NativeEditResult> {
+	const session: EditSession = new natives!.EditSession(
+		getEditStore(),
+		enginePolicy(cwd, { mode: "hashline", enforceSeenLines: true }),
+	);
+	try {
+		session.setArgsJson(JSON.stringify({ input: plan.input }));
+		session.finish();
+		const outcome = await session.apply({ lspFlush: false }, (error, request) =>
+			error ? Promise.reject(error) : persistRequest(pi, request),
+		);
+		if (outcome.isError) return { ok: false, text: outcome.text || "Edit failed." };
+		const firstChangedLine = outcome.files.find(
+			(file) => file.firstChangedLine !== undefined,
+		)?.firstChangedLine;
+		const fileChanges: FileDiff[] = outcome.files.map((file) => ({
+			format: "hunks-v1" as const,
+			path: file.path,
+			language: lang(file.path),
+			firstChangedLine: file.firstChangedLine,
+			preview: previewFromNumberedDiff(file.diff),
+		}));
+		const rawDiff = outcome.files
+			.map((file) => file.diff)
+			.filter((diff) => diff.length > 0)
+			.join("\n");
+		const perFile = outcome.files.map((file, index) => `${index + 1}. ${file.text}`).join("\n");
+		return {
+			ok: true,
+			text: perFile || outcome.text,
+			diff: boundedDiffText(rawDiff),
+			firstChangedLine,
+			fileChanges,
+		};
+	} finally {
+		session.close();
+	}
+}
+
+/**
+ * Record a snapshot tag for `absolutePath` on behalf of the `read` wrapper.
+ * The tag (`[displayPath#TAG]` in read output) is what hashline payloads
+ * anchor on; the engine validates it against this store at apply time.
+ * Returns the 4-hex tag, or null when the addon is unavailable or the file
+ * is unreadable/larger than the store's limit.
+ */
+export function hashlineSnapshotTag(absolutePath: string): string | null {
+	if (!natives?.EditStore) return null;
+	try {
+		return getEditStore().recordSnapshotFile(absolutePath);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Hashline gate: whether the `hashline` edit param and the tag-emitting
+ * `read` wrapper are offered. Default off — hashline changes the read tool
+ * output, so it ships opt-in like the native engine:
+ *
+ * - `PI_EDIT_HASHLINE=1|true|yes` forces on; any other value forces off
+ * - settings key `nativeEdit.hashline: true` (global + project) otherwise
+ */
+export function resolveHashlineEnabled(cwd: string): boolean {
+	const env = process.env.PI_EDIT_HASHLINE;
+	if (env !== undefined) return /^(1|true|yes)$/i.test(env);
+	try {
+		const manager = SettingsManager.create(cwd);
+		const read = (settings: Record<string, unknown> | undefined) =>
+			(settings?.nativeEdit as { hashline?: unknown } | undefined)?.hashline;
+		return read(manager.getProjectSettings() as Record<string, unknown>) === true ||
+			read(manager.getGlobalSettings() as Record<string, unknown>) === true;
+	} catch {
+		return false;
 	}
 }
