@@ -310,6 +310,12 @@ Each bash tool call spawns a **new shell process** (`spawn(shell, [...args, comm
 
 Implication: don't hook `tool_result` to react to cwd changes. Use `fs.watch` instead.
 
+### 1b. Runtime `process.env` Never Reaches the Dynamic Linker
+
+`process.env` mutations (e.g. pi-direnv applying `direnv export json`) live at the **JS level**. Tool subprocesses inherit them — each spawn gets a fresh C-level environ — but the **running pi process does not**: the dynamic linker (`ld.so`) snapshots `LD_LIBRARY_PATH` (and friends) from the C environ **at process start**, and `dlopen()` consults that snapshot.
+
+Implication: natives that `dlopen()` optional system libraries at runtime (pi-natives' `AudioCapture` → `libasound.so.2`/`libpulse-simple.so.0`, others later) can only see environment that existed **before pi launched**. Verified symptom: a bash-tool probe of the same code succeeds while the in-process call fails with `cannot open shared object file`. Test natives in `nix develop -c` or after a full pi restart from a direnv-applied shell — never conclude from a bash-tool result that the in-process path works.
+
 ```typescript
 // Wrong — cwd never actually changes between calls
 pi.on("tool_result", async (event, ctx) => {
