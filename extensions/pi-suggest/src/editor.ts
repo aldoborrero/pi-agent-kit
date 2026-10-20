@@ -1,4 +1,14 @@
-import { matchesKey, truncateToWidth, visibleWidth, type AutocompleteProvider, type EditorComponent, type TUI } from "@earendil-works/pi-tui";
+import {
+  matchesKey,
+  truncateToWidth,
+  visibleWidth,
+  type AutocompleteProvider,
+  type EditorComponent,
+  type EditorTheme,
+  type TUI,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
+} from "@earendil-works/pi-tui";
 
 const EMPTY_CURSOR_PATTERN = /\x1b\[7m \x1b\[(?:27|0)m/;
 const ALT_UP_SEQUENCES = new Set(["\x1b[1;3A", "\x1b[3A"]);
@@ -32,10 +42,20 @@ export class SuggestEditor implements EditorComponent {
   public onPasteImage?: () => void;
   public onExtensionShortcut?: (data: string) => boolean;
 
+  /** Where the ghost sits in the last render, for mouse hit-testing. */
+  private ghostSpan: { lineIndex: number; startCol: number; endCol: number } | null = null;
+  /** Theme-aware ghost styling; falls back to plain DIM without a theme. */
+  private readonly ghostWrap: (text: string) => string;
+
   constructor(
     private readonly inner: EditorComponent,
     private readonly tui: TUI,
-  ) {}
+    theme?: EditorTheme,
+  ) {
+    this.ghostWrap = theme
+      ? (text) => theme.fg("muted", text)
+      : (text) => `${DIM}${text}${RESET}`;
+  }
 
   // ─── EditorComponent delegation ─────────────────────────────────
 
@@ -236,27 +256,77 @@ export class SuggestEditor implements EditorComponent {
     const lines = this.inner.render(width);
     const ghostVisible = this.shouldShowGhost();
 
-    if (!ghostVisible) return lines;
+    if (!ghostVisible) {
+      this.ghostSpan = null;
+      return lines;
+    }
 
     const editableLineIndex = lines.findIndex((line) => EMPTY_CURSOR_PATTERN.test(line));
-    if (editableLineIndex === -1) return lines;
+    if (editableLineIndex === -1) {
+      this.ghostSpan = null;
+      return lines;
+    }
 
     const line = lines[editableLineIndex]!;
     const match = EMPTY_CURSOR_PATTERN.exec(line);
-    if (!match || match.index === undefined) return lines;
+    if (!match || match.index === undefined) {
+      this.ghostSpan = null;
+      return lines;
+    }
 
     const before = line.slice(0, match.index + match[0].length);
     const after = line.slice(match.index + match[0].length);
     const availableColumns = after.match(/^\s*/)?.[0].length ?? 0;
-    if (availableColumns <= 0) return lines;
+    if (availableColumns <= 0) {
+      this.ghostSpan = null;
+      return lines;
+    }
 
     const ghost = truncateToWidth(this.getSelectedSuggestion()!, availableColumns, "");
-    if (!ghost) return lines;
+    if (!ghost) {
+      this.ghostSpan = null;
+      return lines;
+    }
 
     const remainingSpaces = " ".repeat(Math.max(0, availableColumns - visibleWidth(ghost)));
     const rest = after.slice(availableColumns);
-    lines[editableLineIndex] = `${before}${DIM}${ghost}${RESET}${remainingSpaces}${rest}`;
+    lines[editableLineIndex] = `${before}${this.ghostWrap(ghost)}${remainingSpaces}${rest}`;
+
+    // Stash the ghost's visible span for mouse hit-testing. `before` ends
+    // with the fake-cursor cell, so the ghost text starts right after it;
+    // endCol extends a couple of columns for a forgiving click target.
+    const ghostStart = visibleWidth(before);
+    this.ghostSpan = {
+      lineIndex: editableLineIndex,
+      startCol: ghostStart,
+      endCol: ghostStart + visibleWidth(ghost) + 2,
+    };
     return lines;
+  }
+
+  /**
+   * Click on the ghost text accepts the suggestion; every other mouse
+   * interaction (cursor positioning, autocomplete clicks, text selection)
+   * is forwarded to the inner editor, whose handlers the wrapper must not
+   * shadow.
+   */
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (
+      this.ghostSpan &&
+      event.type === "click" &&
+      event.button === "left" &&
+      event.y - 1 === this.ghostSpan.lineIndex &&
+      event.x >= this.ghostSpan.startCol &&
+      event.x < this.ghostSpan.endCol
+    ) {
+      this.insertTextAtCursor(this.getSelectedSuggestion()!);
+      this.onAcceptSuggestion?.();
+      return { handled: true };
+    }
+    const inner = this.inner as unknown as {
+      handleMouse?: (event: TuiMouseEvent) => TuiMouseEventResult | undefined;
+    };
+    return inner.handleMouse?.(event);
   }
 
   private matchesPreviousSuggestion(data: string): boolean {
