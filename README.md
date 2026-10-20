@@ -47,81 +47,83 @@ Once installed, you get commands like:
 
 ## Extension catalog
 
+Tables below distinguish extensions **maintained in this repo** (`Mine`, developed by Aldo Borrero) from **third-party packages** the kit pulls in (`External`).
+
 ### Bundle
 
-| Package | Description |
-|---------|-------------|
-| [`pi-agent-kit`](extensions/pi-agent-kit) | Meta-package — installs all pi-* extensions below |
+| Package | Source | Description |
+|---------|--------|-------------|
+| [`pi-agent-kit`](extensions/pi-agent-kit) | Mine | Meta-package — installs all pi-* extensions below |
 
 ### Code Intelligence
 
-| Extension | Description |
-|-----------|-------------|
-| [`pi-ast-grep`](extensions/pi-ast-grep) | Structural code search using AST patterns |
-| [`pi-edit`](extensions/pi-edit) | Enhanced `edit` tool — single, batch (`multi`), and Codex-style patch modes |
-| [`pi-diff`](extensions/pi-diff) | Structured diff rendering |
-| [`pi-tuicr`](extensions/pi-tuicr) | Interactive code review launcher |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`pi-ast-grep`](extensions/pi-ast-grep) | Mine | Structural code search using AST patterns |
+| [`pi-edit`](extensions/pi-edit) | Mine | Enhanced `edit` tool — single, batch (`multi`), and Codex-style patch modes |
+| [`pi-diff`](extensions/pi-diff) | Mine | Structured diff rendering |
+| [`pi-tuicr`](extensions/pi-tuicr) | Mine | Interactive code review launcher |
 
 ### Safety
 
-| Extension | Description |
-|-----------|-------------|
-| [`pi-bitwarden`](extensions/pi-bitwarden) | Secure vault access via rbw — `bw_get`/`bw_list` with password masking |
-| [`pi-sandbox`](extensions/pi-sandbox) | OS-level sandboxing for bash commands |
-| [`pi-rewind-hook`](https://github.com/nicobailon/pi-rewind-hook) | External — file-state rewind points, restorable from `/fork` and `/tree` |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`pi-bitwarden`](extensions/pi-bitwarden) | Mine | Secure vault access via rbw — `bw_get`/`bw_list` with password masking |
+| [`pi-sandbox`](extensions/pi-sandbox) | Mine | OS-level sandboxing for bash commands |
+| [`pi-rewind-hook`](https://github.com/nicobailon/pi-rewind-hook) | External | File-state rewind points, restorable from `/fork` and `/tree` |
 
 ### Session & Context
 
-| Extension | Description |
-|-----------|-------------|
-| [`pi-context`](extensions/pi-context) | `/context` TUI — token usage, extensions, skills, session cost |
-| [`pi-alias`](extensions/pi-alias) | `/exit` (alias for `/quit`) and `/clear` (alias for `/new`) commands |
-| [`pi-suggest`](extensions/pi-suggest) | Next-prompt prediction — ghost text suggestions after each turn |
-| [`pi-btw`](https://github.com/dbachelder/pi-btw) | External — parallel `/btw` side conversations in a real sub-session with tool access |
-| [`@luxusai/pi-hindsight`](https://www.npmjs.com/package/@luxusai/pi-hindsight) | External — durable Hindsight-backed long-term memory (`hindsight_*` tools) |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`pi-context`](extensions/pi-context) | Mine | `/context` TUI — token usage, extensions, skills, session cost |
+| [`pi-alias`](extensions/pi-alias) | Mine | `/exit` (alias for `/quit`) and `/clear` (alias for `/new`) commands |
+| [`pi-suggest`](extensions/pi-suggest) | Mine | Next-prompt prediction — ghost text suggestions after each turn |
+| [`pi-btw`](https://github.com/dbachelder/pi-btw) | External | Parallel `/btw` side conversations in a real sub-session with tool access |
+| [`@luxusai/pi-hindsight`](https://www.npmjs.com/package/@luxusai/pi-hindsight) | External | Durable Hindsight-backed long-term memory (`hindsight_*` tools) |
 
 ### Workflow & Automation
 
-| Extension | Description |
-|-----------|-------------|
-| [`@bacnh85/pi-subagent`](https://www.npmjs.com/package/@bacnh85/pi-subagent) | External — delegate tasks to specialized subagents (single, parallel, chain) |
-| [`pi-loop`](extensions/pi-loop) | Schedule, list, or delete recurring prompts on a timer |
-| [`pi-until`](extensions/pi-until) | Repeat until a condition is met |
-| [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) | External — structured questions with multi-select, previews, and notes |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`@bacnh85/pi-subagent`](https://www.npmjs.com/package/@bacnh85/pi-subagent) | External | Delegate tasks to specialized subagents (single, parallel, chain) |
+| [`pi-loop`](extensions/pi-loop) | Mine | Schedule, list, or delete recurring prompts on a timer |
+| [`pi-until`](extensions/pi-until) | Mine | Repeat until a condition is met |
+| [`@juicesharp/rpiv-ask-user-question`](https://github.com/juicesharp/rpiv-mono/tree/main/packages/rpiv-ask-user-question) | External | Structured questions with multi-select, previews, and notes |
 
 ### Search & Web
 
-| Extension | Description |
-|-----------|-------------|
-| [`pi-web-access`](https://github.com/nicobailon/pi-web-access) | External — web search, page/PDF extraction, repository and video access |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`pi-web-access`](https://github.com/nicobailon/pi-web-access) | External | Web search, page/PDF extraction, repository and video access |
 
 ### Environment & Integration
 
-| Extension | Description |
-|-----------|-------------|
-| [`pi-direnv`](extensions/pi-direnv) | Auto-load direnv environment variables |
-| [`pi-codex`](extensions/pi-codex) | OpenAI Codex integration — review and rescue tasks |
-| [`@bacnh85/pi-notify`](https://github.com/bacnh85/pi-extensions/tree/main/pi-notify) | External — desktop notifications for completion, errors, and questions |
-| [`pi-phoenix`](https://github.com/philipbjorge/pi-phoenix) | External — OpenTelemetry tracing to Arize Phoenix |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`pi-direnv`](extensions/pi-direnv) | Mine | Auto-load direnv environment variables |
+| [`pi-codex`](extensions/pi-codex) | Mine | OpenAI Codex integration — review and rescue tasks |
+| [`@bacnh85/pi-notify`](https://github.com/bacnh85/pi-extensions/tree/main/pi-notify) | External | Desktop notifications for completion, errors, and questions |
+| [`pi-phoenix`](https://github.com/philipbjorge/pi-phoenix) | External | OpenTelemetry tracing to Arize Phoenix |
 
 ### Input & Voice
 
-| Extension | Description |
-|-----------|-------------|
-| [`pi-voice`](extensions/pi-voice) | Speech-to-text — Groq, OpenAI, or local Whisper |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`pi-voice`](extensions/pi-voice) | Mine | Speech-to-text — Groq, OpenAI, or local Whisper |
 
 ### UI
 
-| Extension | Description |
-|-----------|-------------|
-| [`pi-footer`](extensions/pi-footer) | Custom footer with git branch, tokens, status |
-| [`pi-themes`](extensions/pi-themes) | Ships the `lavender` theme |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`pi-footer`](extensions/pi-footer) | Mine | Custom footer with git branch, tokens, status |
+| [`pi-themes`](extensions/pi-themes) | Mine | Ships the `lavender` theme |
 
 ### Utility
 
-| Extension | Description |
-|-----------|-------------|
-| [`pi-common`](extensions/pi-common) | Shared `createUiColors` and color utilities |
+| Extension | Source | Description |
+|-----------|--------|-------------|
+| [`pi-common`](extensions/pi-common) | Mine | Shared `createUiColors` and color utilities |
 
 ## Configuration
 
@@ -132,15 +134,15 @@ cp .envrc.local-template .envrc.local
 direnv allow
 ```
 
-| Variable | Extension | Description |
-|----------|-----------|-------------|
-| `GROQ_API_KEY` / `OPENAI_API_KEY` | pi-voice | Speech-to-text providers (`VOICE_LANG`, `VOICE_MODE`, `VOICE_DAEMON_URL` also available) |
-| `EXA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `PERPLEXITY_API_KEY`, `FIRECRAWL_API_KEY`, `SEARXNG_BASE_URL` | pi-web-access | Search providers — any one of them |
-| `PI_SUGGEST_MODEL` | pi-suggest | Override the next-prompt suggestion model |
-| `PI_UNTIL_MAX_ITERATIONS` | pi-until | Cap iterations for the `/until` loop |
-| `RBW_TIMEOUT_MS` / `RBW_UNLOCK_TIMEOUT_MS` | pi-bitwarden | rbw command / unlock timeouts |
-| `PI_PHOENIX_ENABLE` | pi-phoenix | Opt-in tracing — off by default; `true` to enable |
-| `PI_HINDSIGHT_ENABLED` | pi-hindsight | Opt-in memory — off by default; `true` to enable |
+| Variable | Extension | Source | Description |
+|----------|-----------|--------|-------------|
+| `GROQ_API_KEY` / `OPENAI_API_KEY` | pi-voice | Mine | Speech-to-text providers (`VOICE_LANG`, `VOICE_MODE`, `VOICE_DAEMON_URL` also available) |
+| `EXA_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPER_API_KEY`, `PERPLEXITY_API_KEY`, `FIRECRAWL_API_KEY`, `SEARXNG_BASE_URL` | pi-web-access | External | Search providers — any one of them |
+| `PI_SUGGEST_MODEL` | pi-suggest | Mine | Override the next-prompt suggestion model |
+| `PI_UNTIL_MAX_ITERATIONS` | pi-until | Mine | Cap iterations for the `/until` loop |
+| `RBW_TIMEOUT_MS` / `RBW_UNLOCK_TIMEOUT_MS` | pi-bitwarden | Mine | rbw command / unlock timeouts |
+| `PI_PHOENIX_ENABLE` | pi-phoenix | External | Opt-in tracing — off by default; `true` to enable |
+| `PI_HINDSIGHT_ENABLED` | pi-hindsight | External | Opt-in memory — off by default; `true` to enable |
 
 > Phoenix tracing and Hindsight memory are disabled by default in this kit.
 
