@@ -34,7 +34,6 @@
   "dependencies": {
     "@aldoborrero/pi-alias": "*",
     "@aldoborrero/pi-natives": "*",
-    "@aldoborrero/pi-bitwarden": "*",
     "@aldoborrero/pi-codex": "*",
     "@aldoborrero/pi-common": "*",
     "@aldoborrero/pi-context": "*",

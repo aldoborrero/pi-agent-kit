@@ -33,7 +33,6 @@
       "version": "1.0.0",
       "dependencies": {
         "@aldoborrero/pi-alias": "*",
-        "@aldoborrero/pi-bitwarden": "*",
         "@aldoborrero/pi-codex": "*",
         "@aldoborrero/pi-common": "*",
         "@aldoborrero/pi-context": "*",
@@ -77,16 +76,6 @@
     },
     "extensions/pi-alias": {
       "name": "@aldoborrero/pi-alias",
-      "version": "1.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": "*",
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
-    "extensions/pi-bitwarden": {
-      "name": "@aldoborrero/pi-bitwarden",
       "version": "1.0.0",
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
@@ -267,8 +256,6 @@
     "@aldoborrero/pi-agent-kit": ["@aldoborrero/pi-agent-kit@workspace:extensions/pi-agent-kit"],
 
     "@aldoborrero/pi-alias": ["@aldoborrero/pi-alias@workspace:extensions/pi-alias"],
-
-    "@aldoborrero/pi-bitwarden": ["@aldoborrero/pi-bitwarden@workspace:extensions/pi-bitwarden"],
 
     "@aldoborrero/pi-codex": ["@aldoborrero/pi-codex@workspace:extensions/pi-codex"],
 
