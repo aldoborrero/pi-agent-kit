@@ -124,6 +124,8 @@ This is a v1 implementation:
 - `Escape` dismisses the current suggestion
 - accepting the selected suggestion inserts it into the editor with `Tab` or `Right Arrow`
 - it does **not** auto-send the suggestion
+- while a suggestion is generating (nothing to show yet), the widget shows an animated spinner and `Escape` cancels the generation
+- `/suggest model` uses the kit's `SelectList` component: fuzzy filter, scroll window, and mouse support
 
 ## Notes
 

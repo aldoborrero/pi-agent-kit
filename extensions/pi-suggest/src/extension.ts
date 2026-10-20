@@ -13,7 +13,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Container, fuzzyFilter, Input, Spacer, Text } from "@earendil-works/pi-tui";
+import { Container, fuzzyFilter, Input, SelectList, Spacer, Text } from "@earendil-works/pi-tui";
 import { createUiColors, getRegisteredEditorDecorators, isEditorRegistryInstalled, registerEditorDecorator } from "@aldoborrero/pi-common";
 import { SuggestEditor } from "./editor";
 import { once } from "./once.ts";
@@ -27,6 +27,9 @@ const MAX_ASSISTANT_CHARS = 3000;
 const MAX_USER_CHARS = 1200;
 // Coalesce rapid successive agent_end events into a single generation, and
 // enforce a floor between generations so bursts don't each spawn a model call.
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const SPINNER_INTERVAL_MS = 120;
+
 const SUGGEST_DEBOUNCE_MS = 400;
 const SUGGEST_MIN_INTERVAL_MS = 1500;
 
@@ -368,94 +371,80 @@ async function showSuggestModelSelector(ctx: ExtensionContext): Promise<string |
 
   return ctx.ui.custom<string | null>((tui, theme, kb, done) => {
     const colors = createUiColors(theme);
-    const container = new Container();
-    const searchInput = new Input();
-    const listContainer = new Container();
-    let filteredItems = items;
-    let selectedIndex = Math.max(0, items.findIndex((item) => item.fullId === configured));
-
-    searchInput.onSubmit = () => {
-      const selected = filteredItems[selectedIndex];
-      done(selected ? selected.fullId : null);
+    const selectTheme = {
+      selectedPrefix: (text: string) => colors.primary(text),
+      selectedText: (text: string) => colors.primary(text),
+      description: (text: string) => colors.meta(text),
+      scrollInfo: (text: string) => colors.meta(text),
+      noMatch: (text: string) => colors.warning(text),
     };
 
-    function updateList(): void {
-      listContainer.clear();
-      const visibleCount = 10;
-      const startIndex = Math.max(0, Math.min(selectedIndex - Math.floor(visibleCount / 2), filteredItems.length - visibleCount));
-      const endIndex = Math.min(startIndex + visibleCount, filteredItems.length);
+    let selectedValue = configured;
+    let list = makeList(items);
 
-      for (let i = startIndex; i < endIndex; i++) {
-        const item = filteredItems[i];
-        if (!item) continue;
-        const isSelected = i === selectedIndex;
-        const isConfigured = item.fullId === configured;
-        const prefix = isSelected ? colors.primary("→ ") : "  ";
-        const modelText = isSelected ? colors.primary(item.fullId) : item.fullId;
-        const currentMark = isConfigured ? colors.success(" ✓") : "";
-        listContainer.addChild(new Text(`${prefix}${modelText}${currentMark}`, 0, 0));
-      }
-
-      if (filteredItems.length === 0) {
-        listContainer.addChild(new Text(colors.meta("  No matching models"), 0, 0));
-      } else {
-        const selected = filteredItems[selectedIndex];
-        if (selected) {
-          listContainer.addChild(new Spacer(1));
-          listContainer.addChild(new Text(colors.meta(`  ${selected.fullId}`), 0, 0));
-        }
-        if (startIndex > 0 || endIndex < filteredItems.length) {
-          listContainer.addChild(new Text(colors.meta(`  (${selectedIndex + 1}/${filteredItems.length})`), 0, 0));
-        }
-      }
+    function makeList(filtered: SuggestModelItem[]): SelectList {
+      const component = new SelectList(
+        filtered.map((item) => ({ value: item.fullId, label: item.fullId, description: item.provider })),
+        10,
+        selectTheme,
+      );
+      const index = filtered.findIndex((item) => item.fullId === selectedValue);
+      component.setSelectedIndex(index >= 0 ? index : 0);
+      component.onSelect = (item) => done(item.value);
+      component.onCancel = () => done(null);
+      component.onSelectionChange = (item) => {
+        selectedValue = item.value;
+      };
+      return component;
     }
 
-    function filterItems(query: string): void {
-      filteredItems = query
+    function refilter(query: string): void {
+      const filtered = query
         ? fuzzyFilter(items, query, (item) => `${item.fullId} ${item.provider} ${item.id}`)
         : items;
-      selectedIndex = Math.min(selectedIndex, Math.max(0, filteredItems.length - 1));
-      updateList();
+      list = makeList(filtered);
+      listContainer.clear();
+      listContainer.addChild(list);
     }
 
+    const searchInput = new Input();
+    searchInput.onChange = (text: string) => {
+      refilter(text);
+      tui.requestRender();
+    };
+
+    const container = new Container();
     container.addChild(new DynamicBorder((s) => colors.primary(s)));
     container.addChild(new Text(colors.primary(theme.bold(" Select Suggest Model")), 0, 0));
     container.addChild(new Text(colors.meta(`Current: ${configured}`), 0, 0));
     container.addChild(new Spacer(1));
     container.addChild(searchInput);
     container.addChild(new Spacer(1));
+    const listContainer = new Container();
+    listContainer.addChild(list);
     container.addChild(listContainer);
     container.addChild(new Spacer(1));
     container.addChild(new Text(colors.meta("Type to filter · ↑↓ navigate · enter select · esc cancel"), 0, 0));
     container.addChild(new DynamicBorder((s) => colors.primary(s)));
 
-    filterItems("");
-
     return {
       render: (width: number) => container.render(width),
-      invalidate: () => container.invalidate(),
+      invalidate: () => {
+        container.invalidate();
+        list.invalidate();
+      },
       handleInput(data: string) {
         const keybindings = kb as { matches(data: string, action: string): boolean };
-        if (keybindings.matches(data, "tui.select.up")) {
-          if (filteredItems.length > 0) {
-            selectedIndex = selectedIndex === 0 ? filteredItems.length - 1 : selectedIndex - 1;
-            updateList();
-          }
-        } else if (keybindings.matches(data, "tui.select.down")) {
-          if (filteredItems.length > 0) {
-            selectedIndex = selectedIndex === filteredItems.length - 1 ? 0 : selectedIndex + 1;
-            updateList();
-          }
-        } else if (keybindings.matches(data, "tui.select.confirm")) {
-          const selected = filteredItems[selectedIndex];
-          done(selected ? selected.fullId : null);
-          return;
-        } else if (keybindings.matches(data, "tui.select.cancel")) {
-          done(null);
-          return;
+        if (
+          keybindings.matches(data, "tui.select.up") ||
+          keybindings.matches(data, "tui.select.down") ||
+          keybindings.matches(data, "tui.select.confirm") ||
+          keybindings.matches(data, "tui.select.cancel")
+        ) {
+          list.handleInput(data);
         } else {
           searchInput.handleInput(data);
-          filterItems(searchInput.getValue());
+          refilter(searchInput.getValue());
         }
         tui.requestRender();
       },
@@ -704,6 +693,10 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastGenerationStartedAt = 0;
 
+  // Spinner for the "generating" widget state; cleared whenever generation ends.
+  let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+  let spinnerFrame = 0;
+
   function cancelPendingGeneration(): void {
     if (debounceTimer) {
       clearTimeout(debounceTimer);
@@ -743,6 +736,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   function syncEditor(): void {
     editorRef?.setEnabled(state.enabled);
     editorRef?.setSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
+    editorRef?.setGenerating(state.generating);
   }
 
   function installEditor(ctx: ExtensionContext): void {
@@ -765,6 +759,10 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       editor.setOnDismissSuggestion(() => {
         clearSuggestion(ctx);
       });
+      editor.setOnCancelGeneration(() => {
+        clearSuggestion(ctx);
+        if (ctx.hasUI) ctx.ui.notify("Suggestion generation cancelled", "info");
+      });
       editorRef = editor;
       return editor;
     }, { order: 10 });
@@ -772,6 +770,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
 
   function clearSuggestion(ctx?: ExtensionContext, options?: { preserveDiagnostics?: boolean }): void {
     cancelPendingGeneration();
+    stopSpinner();
     void abortActiveSession();
     if (!ctx?.hasUI) return;
     state.suggestions = [];
@@ -800,17 +799,44 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     }
   }
 
+  function stopSpinner(): void {
+    if (spinnerTimer) {
+      clearInterval(spinnerTimer);
+      spinnerTimer = null;
+    }
+  }
+
+  function startSpinner(ctx: ExtensionContext, colors: ReturnType<typeof createUiColors>): void {
+    if (spinnerTimer) return;
+    spinnerTimer = setInterval(() => {
+      spinnerFrame = (spinnerFrame + 1) % SPINNER_FRAMES.length;
+      const frame = colors.primary(SPINNER_FRAMES[spinnerFrame]!);
+      ctx.ui.setWidget(WIDGET_ID, [`${frame} ${colors.meta("generating suggestion — Esc cancels")}`]);
+    }, SPINNER_INTERVAL_MS);
+  }
+
   function renderSuggestion(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
     const selectedSuggestion = getSelectedSuggestion();
-    if (!state.enabled || !selectedSuggestion) {
+    if (!state.enabled || (!selectedSuggestion && !state.generating)) {
+      stopSpinner();
       ctx.ui.setWidget(WIDGET_ID, undefined);
       ctx.ui.setStatus(STATUS_ID, undefined);
       return;
     }
 
-    syncEditor();
     const colors = createUiColors(ctx.ui.theme);
+
+    if (!selectedSuggestion && state.generating) {
+      // Generating with nothing to show yet: spinner + cancel hint.
+      startSpinner(ctx, colors);
+      ctx.ui.setWidget(WIDGET_ID, [`${colors.primary(SPINNER_FRAMES[spinnerFrame]!)} ${colors.meta("generating suggestion — Esc cancels")}`]);
+      ctx.ui.setStatus(STATUS_ID, colors.primary("󰌶 …"));
+      return;
+    }
+    stopSpinner();
+
+    syncEditor();
 
     if (state.miniMode) {
       // Mini mode — one-liner with keybindings
@@ -865,6 +891,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", async () => {
     cancelPendingGeneration();
+    stopSpinner();
     await abortActiveSession();
     unregisterEditorDecorator?.();
     unregisterEditorDecorator = undefined;
