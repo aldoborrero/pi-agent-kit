@@ -25,7 +25,10 @@ import { DynamicBorder, SettingsManager, getAgentDir, getSettingsListTheme, type
 import { createUiColors, registerEditorDecorator } from "@aldoborrero/pi-common";
 import { Container, type SettingItem, SettingsList, Text, isKittyProtocolActive } from "@earendil-works/pi-tui";
 import { createProvider, detectProvider, type ProviderName, type STTProvider } from "./providers.js";
-import { DaemonRecorder, type Recorder, SpawnRecorder } from "./recorder.js";
+import { DaemonRecorder, type Recorder, SpawnRecorder, NativeRecorder } from "./recorder.js";
+import { loadNatives } from "@aldoborrero/pi-natives/src/natives.ts";
+
+const natives = await loadNatives();
 import { VoiceEditor } from "./voice-editor.js";
 import { once } from "./once.ts";
 
@@ -142,7 +145,9 @@ export default function voiceExtension(pi: ExtensionAPI) {
 		if (providerName === "daemon") {
 			recorder = new DaemonRecorder();
 		} else {
-			recorder = new SpawnRecorder();
+			// Native microphone capture first — no arecord/sox/ffmpeg needed;
+			// falls back to external recorders when the addon is unavailable.
+			recorder = new NativeRecorder(natives);
 		}
 	}
 

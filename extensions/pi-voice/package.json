@@ -30,5 +30,8 @@
     "directory": "extensions/pi-voice"
   },
   "author": "aldoborrero",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@aldoborrero/pi-natives": "*"
+  }
 }

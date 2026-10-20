@@ -19,6 +19,121 @@ export interface Recorder {
 	isAvailable(): Promise<boolean>;
 }
 
+/**
+ * Convert mono f32 PCM samples to little-endian S16_LE bytes — the same raw
+ * format arecord/sox/ffmpeg emit at 16 kHz, so the existing WAV packaging,
+ * RMS metering, and providers stay unchanged.
+ */
+export function pcmFloat32ToS16Le(samples: Float32Array): Buffer {
+	const out = Buffer.alloc(samples.length * 2);
+	for (let i = 0; i < samples.length; i++) {
+		const clamped = Math.max(-1, Math.min(1, samples[i]!));
+		out.writeInt16LE(Math.round(clamped * 0x7fff), i * 2);
+	}
+	return out;
+}
+
+/**
+ * Microphone capture through the @oh-my-pi/pi-natives AudioCapture (Rust,
+ * cpal-based): no arecord/sox/ffmpeg dependency, works wherever the native
+ * addon loads. Falls back to SpawnRecorder when natives are unavailable.
+ */
+export class NativeRecorder implements Recorder {
+	private capture: import("@oh-my-pi/pi-natives").AudioCapture | null = null;
+	private chunks: Buffer[] = [];
+	private latestRms = 0;
+	private silenceStart: number | null = null;
+	private recordingStart: number | null = null;
+	private stopped = true;
+	private natives: import("@oh-my-pi/pi-natives") | null;
+
+	constructor(natives: import("@oh-my-pi/pi-natives") | null) {
+		this.natives = natives;
+	}
+
+	start(onAutoStop: () => void): void {
+		if (!this.natives) {
+			throw new Error("Native audio unavailable (@oh-my-pi/pi-natives not loaded).");
+		}
+
+		this.chunks = [];
+		this.latestRms = 0;
+		this.silenceStart = null;
+		this.recordingStart = Date.now();
+		this.stopped = false;
+
+		const finish = (): void => {
+			const wasRunning = !this.stopped;
+			this.stopCapture();
+			if (wasRunning) onAutoStop();
+		};
+
+		this.capture = new this.natives.AudioCapture(16000, (error, samples) => {
+			if (this.stopped) return;
+			if (error) {
+				finish();
+				return;
+			}
+			if (samples.length === 0) return;
+
+			const chunk = pcmFloat32ToS16Le(samples);
+			this.chunks.push(chunk);
+			this.latestRms = computeRms(chunk);
+
+			const now = Date.now();
+			if (this.latestRms < SILENCE_THRESHOLD) {
+				if (this.silenceStart === null) this.silenceStart = now;
+				else if (now - this.silenceStart >= SILENCE_DURATION_MS) {
+					finish();
+					return;
+				}
+			} else {
+				this.silenceStart = null;
+			}
+			if (this.recordingStart && now - this.recordingStart >= MAX_DURATION_MS) {
+				finish();
+			}
+		});
+	}
+
+	async stop(): Promise<RecordingResult> {
+		this.stopCapture();
+		const rawData = Buffer.concat(this.chunks);
+		const audio = Buffer.concat([buildWavHeader(rawData.length), rawData]);
+		this.chunks = [];
+		return { audio };
+	}
+
+	cancel(): void {
+		this.stopCapture();
+		this.chunks = [];
+	}
+
+	getLevel(): number {
+		return this.latestRms;
+	}
+
+	hasLevel(): boolean {
+		return true;
+	}
+
+	async isAvailable(): Promise<boolean> {
+		return this.natives !== null;
+	}
+
+	private stopCapture(): void {
+		if (this.capture) {
+			this.stopped = true;
+			try {
+				this.capture.stop();
+			} catch {
+				// already closed
+			}
+			this.capture = null;
+		}
+	}
+}
+
 export function buildWavHeader(dataLength: number): Buffer {
 	const header = Buffer.alloc(44);
 	const sampleRate = 16000;
