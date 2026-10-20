@@ -672,7 +672,6 @@ async function generateSuggestion(
 export default function suggestExtension(pi: ExtensionAPI): void {
   once(pi, "pi-suggest", () => {
   let editorRef: SuggestEditor | null = null;
-  let lastUIContext: ExtensionContext | undefined;
 
   const state: SuggestState = {
     enabled: true,
@@ -748,7 +747,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
 
   function installEditor(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
-    lastUIContext = ctx;
 
     unregisterEditorDecorator?.();
     unregisterEditorDecorator = registerEditorDecorator(ctx, "pi-suggest", (inner, tui) => {
@@ -762,10 +760,10 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       });
       editor.setOnSelectSuggestion((index) => {
         state.selectedSuggestionIndex = index;
-        if (lastUIContext) renderSuggestion(lastUIContext);
+        renderSuggestion(ctx);
       });
       editor.setOnDismissSuggestion(() => {
-        clearSuggestion(lastUIContext);
+        clearSuggestion(ctx);
       });
       editorRef = editor;
       return editor;
@@ -775,7 +773,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
   function clearSuggestion(ctx?: ExtensionContext, options?: { preserveDiagnostics?: boolean }): void {
     cancelPendingGeneration();
     void abortActiveSession();
-    if (ctx?.hasUI) lastUIContext = ctx;
+    if (!ctx?.hasUI) return;
     state.suggestions = [];
     state.selectedSuggestionIndex = 0;
     state.sourceTurnKey = null;
@@ -804,7 +802,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
 
   function renderSuggestion(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
-    lastUIContext = ctx;
     const selectedSuggestion = getSelectedSuggestion();
     if (!state.enabled || !selectedSuggestion) {
       ctx.ui.setWidget(WIDGET_ID, undefined);
