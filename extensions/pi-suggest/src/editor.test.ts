@@ -141,3 +141,84 @@ describe("SuggestEditor cancel-on-type", () => {
 		expect(observed).toBe(0); // chain cleared, no crash
 	});
 });
+
+describe("SuggestEditor mouse + theme", () => {
+	const CURSOR_LINE = "\x1b[7m \x1b[0m     "; // fake cursor cell + 5 padding cols
+
+	function makeMouseHarness(theme?: { fg: (token: string, text: string) => string }) {
+		let inserted: string | null = null;
+		let innerMouseEvents = 0;
+		const editor = {
+			getText: () => "",
+			setText: () => {},
+			handleInput: () => {},
+			handleMouse: () => {
+				innerMouseEvents++;
+				return { handled: true };
+			},
+			insertTextAtCursor: (text: string) => {
+				inserted = text;
+			},
+			render: () => [CURSOR_LINE],
+			invalidate: () => {},
+		} as unknown as import("@earendil-works/pi-tui").EditorComponent;
+		const tui = { requestRender: () => {} } as unknown as import("@earendil-works/pi-tui").TUI;
+		const suggest = new SuggestEditor(editor, tui, theme);
+		suggest.setEnabled(true);
+		suggest.setSuggestions(["run the tests"]);
+		return { suggest, inserted: () => inserted, innerMouseEvents: () => innerMouseEvents };
+	}
+
+	const click = (x: number, y: number) =>
+		({
+			type: "click",
+			button: "left",
+			x,
+			y,
+			screenX: x,
+			screenY: y,
+			width: 80,
+			height: 24,
+		}) as unknown as import("@earendil-works/pi-tui").TuiMouseEvent;
+
+	test("click on the ghost span accepts the suggestion", () => {
+		const harness = makeMouseHarness();
+		harness.suggest.render(80);
+		// ghost starts right after the cursor cell (col 1); click inside it
+		const result = harness.suggest.handleMouse?.(click(2, 1));
+		expect(result?.handled).toBe(true);
+		expect(harness.inserted()).toBe("run the tests");
+	});
+
+	test("click elsewhere forwards to the inner editor", () => {
+		const harness = makeMouseHarness();
+		harness.suggest.render(80);
+		const result = harness.suggest.handleMouse?.(click(2, 5));
+		expect(harness.innerMouseEvents()).toBe(1);
+		expect(result?.handled).toBe(true); // from the inner handler
+		expect(harness.inserted()).toBeNull();
+	});
+
+	test("stale ghost span never accepts (ghost cleared on re-render)", () => {
+		const harness = makeMouseHarness();
+		harness.suggest.render(80);
+		harness.suggest.clearSuggestions();
+		harness.suggest.render(80); // no ghost now
+		const before = harness.innerMouseEvents();
+		harness.suggest.handleMouse?.(click(2, 1));
+		expect(harness.innerMouseEvents()).toBe(before + 1);
+		expect(harness.inserted()).toBeNull();
+	});
+
+	test("ghost uses the theme muted token when a theme is provided", () => {
+		const harness = makeMouseHarness({ fg: (token, text) => `T[${token}]${text}` });
+		const lines = harness.suggest.render(80);
+		expect(lines[0]).toContain("T[muted]run t"); // truncated to the 5 available columns
+	});
+
+	test("ghost falls back to DIM without a theme", () => {
+		const harness = makeMouseHarness();
+		const lines = harness.suggest.render(80);
+		expect(lines[0]).toContain("\x1b[2m");
+	});
+});

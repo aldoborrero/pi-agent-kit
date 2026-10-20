@@ -688,8 +688,8 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     if (!ctx.hasUI) return;
 
     unregisterEditorDecorator?.();
-    unregisterEditorDecorator = registerEditorDecorator(ctx, "pi-suggest", (inner, tui) => {
-      const editor = new SuggestEditor(inner, tui);
+    unregisterEditorDecorator = registerEditorDecorator(ctx, "pi-suggest", (inner, tui, theme) => {
+      const editor = new SuggestEditor(inner, tui, theme);
       editor.setEnabled(state.enabled);
       editor.setSuggestions(state.enabled ? state.suggestions : [], state.selectedSuggestionIndex);
       editor.setOnAcceptSuggestion(() => {
@@ -713,6 +713,7 @@ export default function suggestExtension(pi: ExtensionAPI): void {
       // waste. Silent (no notify): the user already moved on.
       editor.setOnUserInput(() => {
         if (state.generating) clearSuggestion(ctx);
+        renderSuggestion(ctx);
       });
       editorRef = editor;
       return editor;
@@ -777,6 +778,15 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     }
 
     const colors = createUiColors(ctx.ui.theme);
+
+    // Suggestions can only be inserted while the editor is empty; with text
+    // present the widget is stale noise. Hide it, keep the status badge.
+    if (selectedSuggestion && (editorRef?.getText() ?? "").length > 0) {
+      stopSpinner();
+      ctx.ui.setWidget(WIDGET_ID, undefined);
+      ctx.ui.setStatus(STATUS_ID, colors.primary(state.miniMode ? "󰌶 mini" : "󰌶"));
+      return;
+    }
 
     if (!selectedSuggestion && state.generating) {
       // Generating with nothing to show yet: spinner + cancel hint.

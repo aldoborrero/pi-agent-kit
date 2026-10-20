@@ -135,6 +135,9 @@ This is a v1 implementation:
 - `Escape` dismisses the current suggestion
 - accepting the selected suggestion inserts it into the editor with `Tab` or `Right Arrow`
 - it does **not** auto-send the suggestion
+- **click on the ghost text accepts it** (mouse in fullscreen mode); every other click (cursor positioning, text selection) reaches the editor as before
+- the ghost renders with the theme's `muted` token (follows light/dark themes), falling back to ANSI dim without a theme
+- the suggestion widget auto-hides while the editor has text — it only reappears when the editor is empty again (suggestions insert only into an empty editor)
 - if you start typing while a suggestion is generating, the in-flight generation is cancelled immediately (no stale suggestions, no wasted tokens)
 - while a suggestion is generating (nothing to show yet), the widget shows an animated spinner and `Escape` cancels the generation
 - `/suggest model` uses the kit's `SelectList` component: fuzzy filter, scroll window, and mouse support
