@@ -7,7 +7,7 @@
 
 </div>
 
-A toolkit of **extensions, themes, agents, and prompt templates** for the [Pi coding agent](https://github.com/badlogic/pi-mono). It ships as a Bun workspace of 18 local `pi-*` packages — code intelligence, safety, session context, automation, voice, and UI — wired together by a single aggregator package, so **one install gets you everything**.
+A toolkit of **extensions, themes, agents, and prompt templates** for the [Pi coding agent](https://github.com/badlogic/pi-mono). It ships as a Bun workspace of 17 local `pi-*` packages — code intelligence, safety, session context, automation, voice, and UI — wired together by a single aggregator package, so **one install gets you everything**.
 
 ## Installation
 
@@ -26,7 +26,7 @@ Restart Pi afterwards. The aggregator (`pi-agent-kit`) activates every local ext
 
 ## What you get
 
-- **22 extensions** loaded through the aggregator: 15 maintained here + 7 curated external packages (side conversations, long-term memory, web access, notifications, tracing, structured questions, rewind points)
+- **21 extensions** loaded through the aggregator: 14 maintained here + 7 curated external packages (side conversations, long-term memory, web access, notifications, tracing, structured questions, rewind points)
 - **Rust-native under the hood**: the `bash` tool runs on an embedded brush-core shell session by default (persistent state, ~15–38× less spawn overhead, opt-out in settings), `grep`/`ast_grep`/`pdf` are native, token counts are exact per model family (Claude, Qwen, GLM, DeepSeek — beyond tiktoken), and mic capture needs no external binaries. Integration ledger: [docs/natives-shortlist.md](docs/natives-shortlist.md)
 - **2 extensions** loaded from their own entries: [`@bacnh85/pi-subagent`](https://www.npmjs.com/package/@bacnh85/pi-subagent) (task delegation) and [`@quintinshaw/pi-dynamic-workflows`](https://www.npmjs.com/package/@quintinshaw/pi-dynamic-workflows) (deterministic workflow orchestration)
 - **6 agents** (`agents/`): explore, plan, build, review, debug, brainstorm — lean markdown system prompts that inherit the session model
@@ -61,7 +61,7 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 | Extension | Source | Description |
 |-----------|--------|-------------|
 | [`pi-natives`](extensions/pi-natives) | Mine | Rust-accelerated tools via `@oh-my-pi/pi-natives` — native `grep` (ripgrep engine), `ast_grep` (pattern mode + CLI fallback), `pdf`; exports the shared loader, the native bash backend, and the `scheme://` VFS registry for other extensions |
-| [`pi-edit`](extensions/pi-edit) | Mine | Enhanced `edit` tool — single, batch (`multi`), and Codex-style patch modes |
+| [`pi-edit`](extensions/pi-edit) | Mine | Enhanced `edit` tool — single, batch (`multi`), and Codex-style patch modes; AST semantic rewrites, native edit engine, and an opt-in `hashline` line-anchored mode |
 | [`pi-diff`](extensions/pi-diff) | Mine | Structured diff rendering |
 | [`pi-tuicr`](extensions/pi-tuicr) | Mine | Interactive code review launcher |
 
@@ -78,7 +78,7 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 |-----------|--------|-------------|
 | [`pi-context`](extensions/pi-context) | Mine | `/context` TUI — token usage (native exact counts per model family), extensions, skills, session cost |
 | [`pi-alias`](extensions/pi-alias) | Mine | `/exit` (alias for `/quit`) and `/clear` (alias for `/new`) commands |
-| [`pi-suggest`](extensions/pi-suggest) | Mine | Next-prompt prediction — ghost text suggestions after each turn |
+| [`pi-suggest`](extensions/pi-suggest) | Mine | Next-prompt prediction — ghost text suggestions after each turn, context-aware (VCS state can prime a commit message first) |
 | [`pi-btw`](https://github.com/dbachelder/pi-btw) | External | Parallel `/btw` side conversations in a real sub-session with tool access |
 | [`@luxusai/pi-hindsight`](https://www.npmjs.com/package/@luxusai/pi-hindsight) | External | Durable Hindsight-backed long-term memory (`hindsight_*` tools) |
 
