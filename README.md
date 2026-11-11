@@ -80,7 +80,6 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 | [`pi-alias`](extensions/pi-alias) | Mine | `/exit` (alias for `/quit`) and `/clear` (alias for `/new`) commands |
 | [`pi-suggest`](extensions/pi-suggest) | Mine | Next-prompt prediction — ghost text suggestions after each turn, context-aware (VCS state can prime a commit message first) |
 | [`pi-btw`](https://github.com/dbachelder/pi-btw) | External | Parallel `/btw` side conversations in a real sub-session with tool access |
-| [`@luxusai/pi-hindsight`](https://www.npmjs.com/package/@luxusai/pi-hindsight) | External | Durable Hindsight-backed long-term memory (`hindsight_*` tools) |
 
 ### Workflow & Automation
 
@@ -142,9 +141,8 @@ direnv allow
 | `PI_UNTIL_MAX_ITERATIONS` | pi-until | Mine | Cap iterations for the `/until` loop |
 | `PI_SHELL_NATIVE` | pi-sandbox | Mine | Force the bash backend on/off (`1`/`0`) — otherwise `nativeShell.enabled` settings key or default-on |
 | `PI_PHOENIX_ENABLE` | pi-phoenix | External | Opt-in tracing — off by default; `true` to enable |
-| `PI_HINDSIGHT_ENABLED` | pi-hindsight | External | Opt-in memory — off by default; `true` to enable |
 
-> Phoenix tracing and Hindsight memory are disabled by default in this kit.
+> Phoenix tracing is disabled by default in this kit.
 
 Migrating from older versions (renamed tools, notification requirements on Linux/Nix)? See the [migration notes](docs/plugin-migration.md).
 
