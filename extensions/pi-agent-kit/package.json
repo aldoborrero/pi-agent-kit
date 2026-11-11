@@ -1,7 +1,7 @@
 {
   "name": "@aldoborrero/pi-agent-kit",
   "version": "1.0.0",
-  "description": "Pi extension bundle \u2014 installs and activates all pi-* extensions",
+  "description": "Pi extension bundle — installs and activates all pi-* extensions",
   "type": "module",
   "main": "src/extension.ts",
   "pi": {
