@@ -22,7 +22,6 @@ import registerDiff from "@aldoborrero/pi-diff/src/extension.ts";
 import registerDirenv from "@aldoborrero/pi-direnv/src/extension.ts";
 import registerEdit from "@aldoborrero/pi-edit/src/extension.ts";
 import registerFooter from "@aldoborrero/pi-footer/src/extension.ts";
-import registerHindsight from "@luxusai/pi-hindsight/extensions/index.ts";
 import registerLoop from "@aldoborrero/pi-loop/src/extension.ts";
 import registerNotify from "@bacnh85/pi-notify/extensions/index.js";
 import registerAskUserQuestion from "@juicesharp/rpiv-ask-user-question";
@@ -48,7 +47,6 @@ const MEMBERS: Factory[] = [
 	registerDirenv,
 	registerEdit,
 	registerFooter,
-	registerHindsight,
 	registerLoop,
 	registerNotify,
 	registerAskUserQuestion,
@@ -70,11 +68,10 @@ export default function (pi: ExtensionAPI): void {
 	// runner; export PI_SUBAGENT_HERDR=auto before starting pi to opt back in.
 	process.env.PI_SUBAGENT_HERDR ??= "off";
 
-	// Opt-out defaults: tracing and memory are networked side effects, so this
-	// kit ships them disabled. `??=` preserves any value the user already set
-	// (e.g. PI_PHOENIX_ENABLE=true or PI_HINDSIGHT_ENABLED=true to opt in).
+	// Opt-out default: tracing is a networked side effect, so this
+	// kit ships it disabled. `??=` preserves any value the user already set
+	// (PI_PHOENIX_ENABLE=true to opt in).
 	process.env.PI_PHOENIX_ENABLE ??= "false";
-	process.env.PI_HINDSIGHT_ENABLED ??= "false";
 
 	once(pi, "pi-agent-kit", () => {
 		for (const register of MEMBERS) {

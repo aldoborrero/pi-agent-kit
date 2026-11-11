@@ -37,14 +37,6 @@
 # export PI_PHOENIX_PROJECT=       # project name (defaults to repo/cwd basename)
 
 # ---------------------------------------------------------------------------
-# Hindsight long-term memory (optional — requires a Hindsight server)
-# ---------------------------------------------------------------------------
-
-# export PI_HINDSIGHT_ENABLED=true # opt-in: this kit ships memory off by default
-# export HINDSIGHT_BASE_URL=        # e.g. http://localhost:8000
-# export HINDSIGHT_API_TOKEN=
-
-# ---------------------------------------------------------------------------
 # Suggest suggestion model (optional — defaults to current session model)
 # ---------------------------------------------------------------------------
 
