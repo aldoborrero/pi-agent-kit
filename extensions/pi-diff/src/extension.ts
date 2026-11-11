@@ -33,8 +33,8 @@ export default function (pi: ExtensionAPI) {
 			return filtered.length > 0 ? filtered.map((o) => ({ value: o, label: o })) : null;
 		},
 		handler: async (args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("Diff viewer requires interactive mode", "error");
+			if (!ctx.hasUI || ctx.mode !== "tui") {
+				ctx.ui.notify("Diff viewer requires the terminal UI", "error");
 				return;
 			}
 

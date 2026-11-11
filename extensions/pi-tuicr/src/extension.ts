@@ -65,11 +65,12 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 
-			if (!ctx.hasUI) {
+			// RPC clients (e.g. an editor through ACP) have no terminal to hand to tuicr.
+			if (!ctx.hasUI || ctx.mode !== "tui") {
 				return {
 					content: [{
 						type: "text",
-						text: "(tuicr requires interactive TUI mode)",
+						text: "tuicr needs pi's terminal UI, which this session doesn't have. Ask the user to review the changes another way.",
 					}],
 				};
 			}
