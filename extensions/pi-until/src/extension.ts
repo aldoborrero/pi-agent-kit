@@ -311,7 +311,7 @@ export default function loopExtension(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			let nextState = parseArgs(args);
 			if (!nextState) {
-				if (!ctx.hasUI) {
+				if (!ctx.hasUI || ctx.mode !== "tui") {
 					ctx.ui.notify("Usage: /until tests | /until custom <condition> | /until self", "warning");
 					return;
 				}

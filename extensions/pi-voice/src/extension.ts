@@ -409,6 +409,10 @@ export default function voiceExtension(pi: ExtensionAPI) {
 
 				// ─── Interactive config panel ────────────────────────────
 				case "config": {
+					if (ctx.mode !== "tui") {
+						if (ctx.hasUI) ctx.ui.notify("Usage: /voice provider|lang|mode <value>", "info");
+						break;
+					}
 					const currentProvider: ProviderSetting = providerName ?? "auto";
 					const langValues: string[] = LANG_VALUES.includes(config.lang as (typeof LANG_VALUES)[number])
 						? [...LANG_VALUES]
