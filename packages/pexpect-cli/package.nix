@@ -22,8 +22,13 @@ python3.pkgs.buildPythonApplication {
     pueue
   ];
 
-  # Add pueue to PATH for both runtime and tests
-  makeWrapperArgs = [ "--prefix PATH : ${pueue}/bin" ];
+  # Add pueue to PATH at runtime; pass each wrapper argument separately.
+  makeWrapperArgs = [
+    "--prefix"
+    "PATH"
+    ":"
+    "${pueue}/bin"
+  ];
 
   # Patch shebangs in bin/ directory for tests
   postPatch = ''
