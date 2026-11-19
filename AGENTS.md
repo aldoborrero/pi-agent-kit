@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-pi-agent-kit is a toolkit for AI coding agents providing extensions, themes, and specialized agents for pi-coding-agent and related agent runtimes. It ships as a Bun workspace of 17 local `@aldoborrero/pi-*` packages. External packages provide workflows (`@quintinshaw/pi-dynamic-workflows`), subagents (`@bacnh85/pi-subagent`), rewind (`pi-rewind-hook`), structured questions (`@juicesharp/rpiv-ask-user-question`), web access (`pi-web-access`), notifications (`@bacnh85/pi-notify`), side conversations (`pi-btw`), and tracing (`pi-phoenix`).
+pi-agent-kit is a toolkit for AI coding agents providing extensions, themes, and specialized agents for pi-coding-agent and related agent runtimes. It ships as a Bun workspace of 16 local `@aldoborrero/pi-*` packages. External packages provide workflows (`@quintinshaw/pi-dynamic-workflows`), subagents (`@bacnh85/pi-subagent`), rewind (`pi-rewind-hook`), structured questions (`@juicesharp/rpiv-ask-user-question`), web access (`pi-web-access`), notifications (`@bacnh85/pi-notify`), side conversations (`pi-btw`), and tracing (`pi-phoenix`).
 
 ## Directory Structure
 
 ```
 agent-kit/
 ├── agents/           # Agent definitions (explore, plan, build, review, debug, brainstorm)
-├── extensions/       # 17 TypeScript packages, each an @aldoborrero/pi-* workspace package
+├── extensions/       # 16 TypeScript packages, each an @aldoborrero/pi-* workspace package
 │   ├── pi-agent-kit/ # Aggregator — imports every member extension + pi-rewind-hook
 │   ├── pi-natives/   # Rust-accelerated tools + shared native loader (@oh-my-pi/pi-natives)
 │   ├── pi-common/    # Shared helpers (createUiColors, etc.) — no _shared/ dir exists
@@ -76,8 +76,6 @@ direnv allow
 | `/context` | pi-context | Show loaded context overview (tokens, extensions, cost) |
 | `/btw <question>` | pi-btw | Parallel side conversation in a real sub-session with tool access (`/side` alias; `/btw:new`, `/btw:tangent`, `/btw:ask`, `/btw:clear`, `/btw:model`, `/btw:inject`, `/btw:summarize`) |
 | `/codex [setup\|review\|adversarial-review\|rescue\|status\|result\|cancel]` | pi-codex | OpenAI Codex integration |
-| `/exit` | pi-alias | Exit pi cleanly (alias for `/quit`) |
-| `/clear` | pi-alias | Clear conversation and start fresh (alias for `/new`) |
 | `/direnv` | pi-direnv | Reload direnv environment variables |
 | `--no-notify` (CLI flag) | @bacnh85/pi-notify | Disable notifications; configure events/sound via the `notify` settings object (no `/notify` toggle) |
 | `/subagent`, `/agent` | @bacnh85/pi-subagent | Configure model roles, list agents and inspect delegated runs |

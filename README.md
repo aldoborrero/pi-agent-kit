@@ -7,7 +7,7 @@
 
 </div>
 
-A toolkit of **extensions, themes, agents, and prompt templates** for the [Pi coding agent](https://github.com/badlogic/pi-mono). It ships as a Bun workspace of 17 local `pi-*` packages — code intelligence, safety, session context, automation, voice, and UI — wired together by a single aggregator package, so **one install gets you everything**.
+A toolkit of **extensions, themes, agents, and prompt templates** for the [Pi coding agent](https://github.com/badlogic/pi-mono). It ships as a Bun workspace of 16 local `pi-*` packages — code intelligence, safety, session context, automation, voice, and UI — wired together by a single aggregator package, so **one install gets you everything**.
 
 ## Installation
 
@@ -77,7 +77,6 @@ Tables below distinguish extensions **maintained in this repo** (`Mine`, develop
 | Extension | Source | Description |
 |-----------|--------|-------------|
 | [`pi-context`](extensions/pi-context) | Mine | `/context` TUI — token usage (native exact counts per model family), extensions, skills, session cost |
-| [`pi-alias`](extensions/pi-alias) | Mine | `/exit` (alias for `/quit`) and `/clear` (alias for `/new`) commands |
 | [`pi-suggest`](extensions/pi-suggest) | Mine | Next-prompt prediction — ghost text suggestions after each turn, context-aware (VCS state can prime a commit message first) |
 | [`pi-btw`](https://github.com/dbachelder/pi-btw) | External | Parallel `/btw` side conversations in a real sub-session with tool access |
 

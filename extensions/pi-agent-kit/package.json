@@ -32,7 +32,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@aldoborrero/pi-alias": "*",
     "@aldoborrero/pi-natives": "*",
     "@aldoborrero/pi-codex": "*",
     "@aldoborrero/pi-common": "*",

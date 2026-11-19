@@ -50,6 +50,7 @@ describe("external plugin replacements", () => {
 				expect(registered.tools).toContain(name);
 			}
 			for (const name of ["questionnaire", "web_fetch"]) expect(registered.tools).not.toContain(name);
+			for (const name of ["exit", "clear"]) expect(registered.commands).not.toContain(name);
 			expect(registered.flags).toContain("no-notify");
 			expect(registered.flags).not.toContain("notify");
 			expect(registered.commands).not.toContain("notify");
