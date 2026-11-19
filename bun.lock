@@ -12,7 +12,6 @@
         "codex-plugin-cc": "github:openai/codex-plugin-cc",
         "gray-matter": "^4.0.3",
         "pi-lsp-extension": "github:samfoy/pi-lsp-extension",
-        "pi-mcp-adapter": "github:nicobailon/pi-mcp-adapter",
       },
       "devDependencies": {
         "@earendil-works/pi-agent-core": "^0.99.1",
@@ -32,7 +31,6 @@
       "name": "@aldoborrero/pi-agent-kit",
       "version": "1.0.0",
       "dependencies": {
-        "@aldoborrero/pi-alias": "*",
         "@aldoborrero/pi-codex": "*",
         "@aldoborrero/pi-common": "*",
         "@aldoborrero/pi-context": "*",
@@ -57,16 +55,6 @@
         "pi-web-access": "0.35.0",
         "typebox": "*",
       },
-      "peerDependencies": {
-        "@earendil-works/pi-agent-core": "*",
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
-    "extensions/pi-alias": {
-      "name": "@aldoborrero/pi-alias",
-      "version": "1.0.0",
       "peerDependencies": {
         "@earendil-works/pi-agent-core": "*",
         "@earendil-works/pi-ai": "*",
@@ -247,8 +235,6 @@
   },
   "packages": {
     "@aldoborrero/pi-agent-kit": ["@aldoborrero/pi-agent-kit@workspace:extensions/pi-agent-kit"],
-
-    "@aldoborrero/pi-alias": ["@aldoborrero/pi-alias@workspace:extensions/pi-alias"],
 
     "@aldoborrero/pi-codex": ["@aldoborrero/pi-codex@workspace:extensions/pi-codex"],
 
@@ -504,9 +490,7 @@
 
     "@mixmark-io/domino": ["@mixmark-io/domino@2.2.0", "", {}, "sha512-Y28PR25bHXUg88kCV7nivXrP2Nj2RueZ3/l/jdx6J9f8J4nsEGcgX0Qe6lt7Pa+J79+kPiJU3LguR6O/6zrLOw=="],
 
-    "@modelcontextprotocol/ext-apps": ["@modelcontextprotocol/ext-apps@1.5.0", "", { "peerDependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "react": "^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^17.0.0 || ^18.0.0 || ^19.0.0", "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["react", "react-dom"] }, "sha512-q4fut89TOoP2LEPHSGfZErIf1K1xOTTzV+41h/bB2BqKw2gKb0uLKbHusOy1UtbY0puS16zBho/vFp3f5XMVbQ=="],
-
-    "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.29.0", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ=="],
+    "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.27.1", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-sr6GbP+4edBwFndLbM60gf07z0FQ79gaExpnsjMGePXqFcSSb7t6iscpjk9DhFhwd+mTEQrzNafGP8/iGGFYaA=="],
 
     "@mozilla/readability": ["@mozilla/readability@0.6.0", "", {}, "sha512-juG5VWh4qAivzTAeMzvY9xs9HY5rAcr2E4I7tiSSCokRFi7XIZCAu92ZkSTsIj1OPceCifL3cpfteP3pDT9/QQ=="],
 
@@ -1180,8 +1164,6 @@
 
     "pi-lsp-extension": ["pi-lsp-extension@github:samfoy/pi-lsp-extension#1426a30", { "dependencies": { "tree-sitter-wasms": "^0.1.13", "vscode-languageserver-protocol": "^3.17.5", "web-tree-sitter": "^0.24.7" }, "peerDependencies": { "@mariozechner/pi-ai": "*", "@mariozechner/pi-coding-agent": "*", "@mariozechner/pi-tui": "*", "@sinclair/typebox": "*" } }, "samfoy-pi-lsp-extension-1426a30"],
 
-    "pi-mcp-adapter": ["pi-mcp-adapter@github:nicobailon/pi-mcp-adapter#c0919a2", { "dependencies": { "@modelcontextprotocol/ext-apps": "^1.2.2", "@modelcontextprotocol/sdk": "^1.25.1", "@sinclair/typebox": "^0.32.0", "zod": "^3.25.0 || ^4.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "bin": { "pi-mcp-adapter": "./cli.js" } }, "nicobailon-pi-mcp-adapter-c0919a2"],
-
     "pi-phoenix": ["pi-phoenix@0.1.3", "", { "dependencies": { "@arizeai/phoenix-otel": "^1.0.0", "@opentelemetry/api": "^1.9.0", "strip-ansi": "^7.2.0" }, "peerDependencies": { "@mariozechner/pi-coding-agent": "*" }, "bin": { "pi-phoenix-sync-openrouter": "bin/sync-openrouter.mjs" } }, "sha512-Cbaq9FU3USJmwLM/cexgr3fr/9ffhF4Md0tI+dYzB+IMQs3ptGtH9RBy5hXWbVNiYkdUbJSQ1EGTYhfw1YaPWg=="],
 
     "pi-rewind-hook": ["pi-rewind-hook@github:nicobailon/pi-rewind-hook#853eb21", { "peerDependencies": { "@earendil-works/pi-coding-agent": "*" } }, "nicobailon-pi-rewind-hook-853eb21"],
@@ -1394,13 +1376,11 @@
 
     "yoctocolors": ["yoctocolors@2.1.2", "", {}, "sha512-CzhO+pFNo8ajLM2d2IW/R93ipy99LWjtwblvC1RsoSUMZgyLbYFr221TnSNT7GjGdYui6P459mw9JH/g/zW2ug=="],
 
-    "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+    "zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
     "@aldoborrero/pi-natives/@sinclair/typebox": ["@sinclair/typebox@0.34.52", "", {}, "sha512-XiMQh7qqVlxZzcVD+kkGMNGMzcTrDMLWI7S4x7z1MkCkbDPrekpZXEUK0eZqZFMuHQg2a2DZOcDIh9o5v3Gonw=="],
-
-    "@anthropic-ai/sandbox-runtime/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
 
     "@arizeai/openinference-genai/@arizeai/openinference-semantic-conventions": ["@arizeai/openinference-semantic-conventions@2.5.0", "", {}, "sha512-4ZeSwiFX3YxB0WSE6x568wM4PVHiYmz3yiOxic6WGKVrE/KIGggMFP/eqUNQhikBKP68IDV0qiILlZAIYnheAQ=="],
 
@@ -1497,6 +1477,10 @@
     "@mariozechner/pi-tui/get-east-asian-width": ["get-east-asian-width@1.5.0", "", {}, "sha512-CQ+bEO+Tva/qlmw24dCejulK5pMzVnUOFOijVogd3KQs07HnRIgp8TGipvCCRT06xeYEbpbgwaCxglFyiuIcmA=="],
 
     "@mariozechner/pi-tui/marked": ["marked@15.0.12", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA=="],
+
+    "@mistralai/mistralai/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
+    "@modelcontextprotocol/sdk/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
     "@opentelemetry/exporter-trace-otlp-proto/@opentelemetry/core": ["@opentelemetry/core@2.9.0", "", { "dependencies": { "@opentelemetry/semantic-conventions": "^1.29.0" }, "peerDependencies": { "@opentelemetry/api": ">=1.0.0 <1.10.0" } }, "sha512-m2nckMT80NnmjTYSPjJQObBJ+8dgkoajEOUbznL8AHZ3T3yHRk2P7gI1PhEBc1+lOnrYE9UWrWHqJDsmqjmNbw=="],
 
@@ -1619,10 +1603,6 @@
     "pac-proxy-agent/https-proxy-agent": ["https-proxy-agent@7.0.6", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "4" } }, "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw=="],
 
     "parse5-htmlparser2-tree-adapter/parse5": ["parse5@6.0.1", "", {}, "sha512-Ofn/CTFzRGTTxwpNEs9PP93gXShHcTq255nzRYSKe8AkVpZY7e1fpmTfOyoIvjP5HG7Z2ZM7VS9PPhQGW2pOpw=="],
-
-    "pi-mcp-adapter/@sinclair/typebox": ["@sinclair/typebox@0.32.35", "", {}, "sha512-Ul3YyOTU++to8cgNkttakC0dWvpERr6RYoHO2W47DLbFvrwBDJUY31B1sImH6JZSYc4Kt4PyHtoPNu+vL2r2dA=="],
-
-    "pi-web-access/@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.27.1", "", { "dependencies": { "@hono/node-server": "^1.19.9", "ajv": "^8.17.1", "ajv-formats": "^3.0.1", "content-type": "^1.0.5", "cors": "^2.8.5", "cross-spawn": "^7.0.5", "eventsource": "^3.0.2", "eventsource-parser": "^3.0.0", "express": "^5.2.1", "express-rate-limit": "^8.2.1", "hono": "^4.11.4", "jose": "^6.1.3", "json-schema-typed": "^8.0.2", "pkce-challenge": "^5.0.0", "raw-body": "^3.0.0", "zod": "^3.25 || ^4.0", "zod-to-json-schema": "^3.25.1" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-sr6GbP+4edBwFndLbM60gf07z0FQ79gaExpnsjMGePXqFcSSb7t6iscpjk9DhFhwd+mTEQrzNafGP8/iGGFYaA=="],
 
     "pi-web-access/undici": ["undici@8.11.2", "", {}, "sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ=="],
 

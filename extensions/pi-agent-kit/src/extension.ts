@@ -13,7 +13,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import registerAlias from "@aldoborrero/pi-alias/src/extension.ts";
 import registerNatives from "@aldoborrero/pi-natives/src/extension.ts";
 import registerBtw from "pi-btw/extensions/btw.ts";
 import registerCodex from "@aldoborrero/pi-codex/src/extension.ts";
@@ -38,7 +37,6 @@ import { once } from "./once.ts";
 type Factory = (pi: never) => void;
 
 const MEMBERS: Factory[] = [
-	registerAlias,
 	registerNatives,
 	registerBtw,
 	registerCodex,
