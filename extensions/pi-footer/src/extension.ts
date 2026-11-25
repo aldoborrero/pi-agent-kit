@@ -1304,7 +1304,7 @@ export default function (pi: ExtensionAPI) {
         invalidate() {
           scheduleRender();
         },
-        render(width: number): string[] {
+        render(width: number): readonly string[] {
           requestGitRefresh(ctx.cwd);
           const state = buildFooterState(ctx, footerData, {
             gitStatus,
