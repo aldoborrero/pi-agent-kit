@@ -34,10 +34,10 @@
     "pi-lsp-extension": "github:samfoy/pi-lsp-extension"
   },
   "devDependencies": {
-    "@earendil-works/pi-agent-core": "^0.99.1",
-    "@earendil-works/pi-ai": "^0.99.1",
-    "@earendil-works/pi-coding-agent": "^0.99.1",
-    "@earendil-works/pi-tui": "^0.99.1"
+    "@earendil-works/pi-agent-core": "^1.6.0",
+    "@earendil-works/pi-ai": "^1.6.0",
+    "@earendil-works/pi-coding-agent": "^1.6.0",
+    "@earendil-works/pi-tui": "^1.6.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",

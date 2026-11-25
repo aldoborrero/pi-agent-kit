@@ -483,7 +483,7 @@ class ContextView implements Component {
 		this.cachedWidth = undefined;
 	}
 
-	render(width: number): string[] {
+	render(width: number): readonly string[] {
 		if (this.cachedWidth !== width) this.rebuild(width);
 		return this.container.render(width);
 	}

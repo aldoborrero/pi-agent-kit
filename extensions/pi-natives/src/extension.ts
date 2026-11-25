@@ -526,7 +526,7 @@ export default function nativesExtension(pi: import("@earendil-works/pi-coding-a
         const reason = nativesLoadError ? ` (${nativesLoadError.slice(0, 120)})` : "";
         ctx.ui.setStatus(
           "pi-natives",
-          ctx.ui.theme.warning(`pi-natives: native addon unavailable${reason}`),
+          ctx.ui.theme.fg("warning", `pi-natives: native addon unavailable${reason}`),
         );
         // Surface the real cause — optional deps pruned, unsupported platform,
         // or incompatible runtime are the usual suspects.

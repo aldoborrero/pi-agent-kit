@@ -138,8 +138,9 @@ export class VoiceEditor implements EditorComponent {
 		return (this.inner as unknown as { isShowingAutocomplete?: () => boolean }).isShowingAutocomplete?.() ?? false;
 	}
 
-	render(width: number): string[] {
-		const lines = this.inner.render(width);
+	render(width: number): readonly string[] {
+		// Pi 1.6 components can return a cached, shared array; copy before overlaying.
+		const lines = [...this.inner.render(width)];
 		if (lines.length === 0) return lines;
 
 		if (this.recordingActive) {

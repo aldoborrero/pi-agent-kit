@@ -862,12 +862,6 @@ export default function suggestExtension(pi: ExtensionAPI): void {
     delegation.onToolResult(event.toolName, event.toolCallId);
   });
 
-  pi.on("session_switch", async (_event, ctx) => {
-    installEditor(ctx);
-    clearSuggestion(ctx);
-    renderSuggestion(ctx);
-  });
-
   pi.on("session_shutdown", async () => {
     cancelPendingGeneration();
     stopSpinner();

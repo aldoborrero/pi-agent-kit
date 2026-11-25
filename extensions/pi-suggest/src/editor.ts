@@ -252,8 +252,10 @@ export class SuggestEditor implements EditorComponent {
     this.inner.handleInput(data);
   }
 
-  render(width: number): string[] {
-    const lines = this.inner.render(width);
+  render(width: number): readonly string[] {
+    // Pi 1.6 components can return a cached, shared array; copy before drawing
+    // the ghost over the editable line.
+    const lines = [...this.inner.render(width)];
     const ghostVisible = this.shouldShowGhost();
 
     if (!ghostVisible) {

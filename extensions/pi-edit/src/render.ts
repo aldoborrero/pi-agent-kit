@@ -57,7 +57,7 @@ function prettyTheme(theme: Theme) {
 class DiffText extends Text {
   private width?: number;
   onResize?: () => void;
-  override render(width: number): string[] {
+  override render(width: number): readonly string[] {
     const changed = this.width !== undefined && this.width !== width;
     this.width = width;
     if (changed) this.onResize?.();
